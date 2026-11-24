@@ -8,7 +8,7 @@ namespace Sortz;
 
 public static class SortzNext
 {
-    private const int InsertionThreshold = 24;
+    private const int InsertionThreshold = 16;
 
     extension<T>(List<T> list)
     {
@@ -45,7 +45,7 @@ public static class SortzNext
             var strings = MemoryMarshal.CreateSpan(
                 ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length);
             if (!TryOrdered(strings, StringComparer.Ordinal))
-                SortOrdinal(strings, 0, 64);
+                SortOrdinalBuckets(strings, 0, 32);
             return;
         }
 
@@ -53,13 +53,18 @@ public static class SortzNext
         if (TryOrdered(values, comparer))
             return;
 
-        if (typeof(T) == typeof(string) && values.Length >= 1024 &&
+        if (typeof(T) == typeof(string) && values.Length >= 128 &&
             ReferenceEquals(comparer, Comparer<T>.Default) &&
             TrySortCultureStrings(MemoryMarshal.CreateSpan(
                 ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length)))
             return;
 
-        IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
+        int depth = 2 * (BitOperations.Log2((uint)values.Length) + 1);
+        if (ReferenceEquals(comparer, Comparer<T>.Default) &&
+            ComparableReference<T>.Supported)
+            IntroSort(values, new ComparableReference<T>(), depth);
+        else
+            IntroSort(values, comparer, depth);
     }
 
     private static void SortInt32(Span<int> values)
@@ -173,9 +178,9 @@ public static class SortzNext
         }
     }
 
-    private readonly record struct CultureEntry(string? Value, int Offset, int Length);
+    private readonly record struct CultureEntry(string? Value, int Offset, int Length, ulong Prefix);
 
-    private sealed class CultureEntryComparer(byte[] keys) : IComparer<CultureEntry>
+    private readonly struct CultureEntryComparer(byte[] keys) : IComparer<CultureEntry>
     {
         public int Compare(CultureEntry x, CultureEntry y)
         {
@@ -183,6 +188,10 @@ public static class SortzNext
                 return y.Value is null ? 0 : -1;
             if (y.Value is null)
                 return 1;
+
+            int prefix = x.Prefix.CompareTo(y.Prefix);
+            if (prefix != 0)
+                return prefix;
 
             return keys.AsSpan(x.Offset, x.Length)
                 .SequenceCompareTo(keys.AsSpan(y.Offset, y.Length));
@@ -198,23 +207,48 @@ public static class SortzNext
         byte[]? keys = null;
         try
         {
+            // Reserve a conservative capacity and generate each key directly into
+            // the pooled buffer. Fall back to comparison sorting if it is insufficient.
+            long capacity = 0;
+            foreach (string? value in values)
+            {
+                if (value is not null)
+                    capacity += 64L + 12L * value.Length;
+                if (capacity > MaxKeyBytes)
+                    return false;
+            }
+
+            keys = ArrayPool<byte>.Shared.Rent((int)capacity);
             int total = 0;
             for (int i = 0; i < values.Length; i++)
             {
                 string? value = values[i];
-                int length = value is null ? 0 : compareInfo.GetSortKeyLength(value.AsSpan(), CompareOptions.None);
-                if (length > MaxKeyBytes - total)
-                    return false;
-                entries[i] = new CultureEntry(value, total, length);
-                total += length;
-            }
+                if (value is null)
+                {
+                    entries[i] = new CultureEntry(null, 0, 0, 0);
+                    continue;
+                }
 
-            keys = ArrayPool<byte>.Shared.Rent(total);
-            for (int i = 0; i < entries.Length; i++)
-            {
-                CultureEntry entry = entries[i];
-                if (entry.Value is not null)
-                    compareInfo.GetSortKey(entry.Value.AsSpan(), keys.AsSpan(entry.Offset, entry.Length), CompareOptions.None);
+                int length;
+                try
+                {
+                    length = compareInfo.GetSortKey(value.AsSpan(), keys.AsSpan(total), CompareOptions.None);
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
+
+                ReadOnlySpan<byte> key = keys.AsSpan(total, length);
+                ulong prefix = 0;
+                if (length >= sizeof(ulong))
+                    prefix = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(key);
+                else
+                    for (int j = 0; j < length; j++)
+                        prefix |= (ulong)key[j] << (56 - 8 * j);
+
+                entries[i] = new CultureEntry(value, total, length, prefix);
+                total += length;
             }
 
             IntroSort(entries, new CultureEntryComparer(keys),
@@ -232,6 +266,99 @@ public static class SortzNext
             if (keys is not null)
                 ArrayPool<byte>.Shared.Return(keys);
         }
+    }
+
+    private readonly struct ComparableReference<T> : IComparer<T>
+    {
+        internal static readonly bool Supported = !typeof(T).IsValueType &&
+            typeof(IComparable<T>).IsAssignableFrom(typeof(T));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Compare(T? x, T? y)
+        {
+            if (x is null)
+                return y is null ? 0 : -1;
+            if (y is null)
+                return 1;
+            return ((IComparable<T>)x).CompareTo(y);
+        }
+    }
+
+    // In-place MSD bucket distribution for Latin-1 code units, with a
+    // general UTF-16 multikey fallback. Null and end-of-string sort first.
+    private static void SortOrdinalBuckets(Span<string?> values, int index, int budget)
+    {
+        if (values.Length < 128 || budget == 0)
+        {
+            SortOrdinal(values, index, 64);
+            return;
+        }
+
+        Span<int> ends = stackalloc int[258];
+        Span<int> next = stackalloc int[258];
+        while (budget-- > 0)
+        {
+            ends.Clear();
+            int nonEmpty = 0, only = 0;
+            foreach (string? value in values)
+            {
+                int digit = OrdinalDigit(value, index) + 2;
+                if (digit >= ends.Length)
+                {
+                    SortOrdinal(values, index, 64);
+                    return;
+                }
+                if (ends[digit]++ == 0)
+                {
+                    nonEmpty++;
+                    only = digit;
+                }
+            }
+
+            if (nonEmpty == 1)
+            {
+                if (only < 2)
+                    return;
+                index++;
+                continue;
+            }
+
+            int sum = 0;
+            for (int b = 0; b < ends.Length; b++)
+            {
+                next[b] = sum;
+                sum += ends[b];
+                ends[b] = sum;
+            }
+
+            for (int b = 0; b < ends.Length; b++)
+            {
+                while (next[b] < ends[b])
+                {
+                    int i = next[b];
+                    string? value = values[i];
+                    int target = OrdinalDigit(value, index) + 2;
+                    if (target == b)
+                        next[b]++;
+                    else
+                    {
+                        int destination = next[target]++;
+                        values[i] = values[destination];
+                        values[destination] = value;
+                    }
+                }
+            }
+
+            for (int b = 2; b < ends.Length; b++)
+            {
+                int start = ends[b - 1], length = ends[b] - start;
+                if (length > 1)
+                    SortOrdinalBuckets(values.Slice(start, length), index + 1, budget);
+            }
+            return;
+        }
+
+        SortOrdinal(values, index, 64);
     }
 
     private static bool TryOrdered<T>(Span<T> values, IComparer<T> comparer)
@@ -257,61 +384,62 @@ public static class SortzNext
         return true;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong DoubleKey(double value)
-    {
-        ulong bits = BitConverter.DoubleToUInt64Bits(value);
-        ulong magnitude = bits & 0x7fff_ffff_ffff_ffffUL;
-        // Double.CompareTo orders every NaN before all numbers and treats +/-0 as equal.
-        if (magnitude > 0x7ff0_0000_0000_0000UL)
-            return 0;
-        if (magnitude == 0)
-            return 0x8000_0000_0000_0000UL;
-
-        return bits ^ ((ulong)((long)bits >> 63) | 0x8000_0000_0000_0000UL);
-    }
-
     private static void SortDouble(Span<double> values)
     {
         if (TryOrdered(values, Comparer<double>.Default))
             return;
 
-        if (values.Length <= 64)
+        if (values.Length <= 32)
         {
             InsertionSort(values, Comparer<double>.Default);
             return;
         }
 
-        Span<int> counts = stackalloc int[8 * 256];
-        counts.Clear();
-        ref int h = ref MemoryMarshal.GetReference(counts);
-        foreach (double value in values)
-        {
-            ulong key = DoubleKey(value);
-            Unsafe.Add(ref h, (byte)key)++;
-            Unsafe.Add(ref h, 256 + (byte)(key >> 8))++;
-            Unsafe.Add(ref h, 512 + (byte)(key >> 16))++;
-            Unsafe.Add(ref h, 768 + (byte)(key >> 24))++;
-            Unsafe.Add(ref h, 1024 + (byte)(key >> 32))++;
-            Unsafe.Add(ref h, 1280 + (byte)(key >> 40))++;
-            Unsafe.Add(ref h, 1536 + (byte)(key >> 48))++;
-            Unsafe.Add(ref h, 1792 + (byte)(key >> 56))++;
-        }
+        // NaNs sort first under Double.CompareTo. Keep every original payload.
+        int nanCount = 0;
+        for (int i = 0; i < values.Length; i++)
+            if (double.IsNaN(values[i]))
+                Swap(values, nanCount++, i);
 
-        double[]? rented = null;
-        Span<double> scratch = values.Length <= 8192
-            ? stackalloc double[values.Length]
-            : (rented = ArrayPool<double>.Shared.Rent(values.Length)).AsSpan(0, values.Length);
+        Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(values[nanCount..]);
+        if (bits.Length < 2)
+            return;
+
+        ulong[]? rented = null;
+        Span<ulong> scratch = bits.Length <= 8192
+            ? stackalloc ulong[bits.Length]
+            : (rented = ArrayPool<ulong>.Shared.Rent(bits.Length)).AsSpan(0, bits.Length);
 
         try
         {
+            Span<int> counts = stackalloc int[8 * 256];
+            counts.Clear();
+            ref int h = ref MemoryMarshal.GetReference(counts);
+            ref ulong data = ref MemoryMarshal.GetReference(bits);
+            // Transform once, rather than repeating the IEEE-754 mapping
+            // for each radix pass. The mapping is reversible, including +/-0.
+            for (int i = 0; i < bits.Length; i++)
+            {
+                ref ulong item = ref Unsafe.Add(ref data, i);
+                ulong key = item ^ ((ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL);
+                item = key;
+                Unsafe.Add(ref h, (byte)key)++;
+                Unsafe.Add(ref h, 256 + (byte)(key >> 8))++;
+                Unsafe.Add(ref h, 512 + (byte)(key >> 16))++;
+                Unsafe.Add(ref h, 768 + (byte)(key >> 24))++;
+                Unsafe.Add(ref h, 1024 + (byte)(key >> 32))++;
+                Unsafe.Add(ref h, 1280 + (byte)(key >> 40))++;
+                Unsafe.Add(ref h, 1536 + (byte)(key >> 48))++;
+                Unsafe.Add(ref h, 1792 + (byte)(key >> 56))++;
+            }
+
             bool inScratch = false;
-            ulong first = DoubleKey(values[0]);
+            ulong first = bits[0];
             for (int digit = 0; digit < 8; digit++)
             {
                 int shift = digit * 8;
                 Span<int> histogram = counts.Slice(digit * 256, 256);
-                if (histogram[(byte)(first >> shift)] == values.Length)
+                if (histogram[(byte)(first >> shift)] == bits.Length)
                     continue;
 
                 int sum = 0;
@@ -323,32 +451,39 @@ public static class SortzNext
                 }
 
                 if (inScratch)
-                    ScatterDouble(scratch, values, histogram, shift);
+                    ScatterUInt64(scratch, bits, histogram, shift);
                 else
-                    ScatterDouble(values, scratch, histogram, shift);
+                    ScatterUInt64(bits, scratch, histogram, shift);
                 inScratch = !inScratch;
             }
 
             if (inScratch)
-                scratch.CopyTo(values);
+                scratch.CopyTo(bits);
+
+            for (int i = 0; i < bits.Length; i++)
+            {
+                ref ulong item = ref Unsafe.Add(ref data, i);
+                item ^= (ulong)(((long)item >> 63) ^ -1L) | 0x8000_0000_0000_0000UL;
+            }
         }
         finally
         {
             if (rented is not null)
-                ArrayPool<double>.Shared.Return(rented);
+                ArrayPool<ulong>.Shared.Return(rented);
         }
     }
 
-    private static void ScatterDouble(ReadOnlySpan<double> source, Span<double> target,
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterUInt64(ReadOnlySpan<ulong> source, Span<ulong> target,
         Span<int> histogram, int shift)
     {
-        ref double input = ref MemoryMarshal.GetReference(source);
-        ref double output = ref MemoryMarshal.GetReference(target);
+        ref ulong input = ref MemoryMarshal.GetReference(source);
+        ref ulong output = ref MemoryMarshal.GetReference(target);
         ref int offsets = ref MemoryMarshal.GetReference(histogram);
         for (int i = 0; i < source.Length; i++)
         {
-            double value = Unsafe.Add(ref input, i);
-            int bucket = (byte)(DoubleKey(value) >> shift);
+            ulong value = Unsafe.Add(ref input, i);
+            int bucket = (byte)(value >> shift);
             Unsafe.Add(ref output, Unsafe.Add(ref offsets, bucket)++) = value;
         }
     }
@@ -392,7 +527,8 @@ public static class SortzNext
             IntroSort(values, StringComparer.Ordinal, 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
 
-    private static void IntroSort<T>(Span<T> values, IComparer<T> comparer, int depth)
+    private static void IntroSort<T, TComparer>(Span<T> values, TComparer comparer, int depth)
+        where TComparer : IComparer<T>
     {
         while (values.Length > InsertionThreshold)
         {
@@ -453,24 +589,26 @@ public static class SortzNext
         InsertionSort(values, comparer);
     }
 
-    private static void InsertionSort<T>(Span<T> values, IComparer<T> comparer)
+    private static void InsertionSort<T, TComparer>(Span<T> values, TComparer comparer)
+        where TComparer : IComparer<T>
     {
         for (int i = 1; i < values.Length; i++)
         {
             T value = values[i];
             int j = i;
             while (j > 0 && comparer.Compare(value, values[j - 1]) < 0)
+            {
+                values[j] = values[j - 1];
                 j--;
+            }
 
-            if (j == i)
-                continue;
-
-            values[j..i].CopyTo(values[(j + 1)..(i + 1)]);
-            values[j] = value;
+            if (j != i)
+                values[j] = value;
         }
     }
 
-    private static void HeapSort<T>(Span<T> values, IComparer<T> comparer)
+    private static void HeapSort<T, TComparer>(Span<T> values, TComparer comparer)
+        where TComparer : IComparer<T>
     {
         for (int i = values.Length / 2 - 1; i >= 0; i--)
             SiftDown(values, i, comparer);
@@ -482,7 +620,8 @@ public static class SortzNext
         }
     }
 
-    private static void SiftDown<T>(Span<T> values, int root, IComparer<T> comparer)
+    private static void SiftDown<T, TComparer>(Span<T> values, int root, TComparer comparer)
+        where TComparer : IComparer<T>
     {
         while (root < values.Length / 2)
         {

@@ -8,9 +8,6 @@ public abstract class TypedSortBenchmark<T>
     [Params(128, 1024, 10000)]
     public int Count { get; set; }
 
-    [Params(InputPattern.Random, InputPattern.Ascending, InputPattern.Duplicates)]
-    public InputPattern Pattern { get; set; }
-
     private T[] source = null!;
     private List<T> list = null!;
     protected virtual IComparer<T>? Comparer => null;
@@ -20,11 +17,6 @@ public abstract class TypedSortBenchmark<T>
     public void Setup()
     {
         source = Create(new Random(42), Count);
-        if (Pattern == InputPattern.Ascending)
-            Array.Sort(source, Comparer);
-        else if (Pattern == InputPattern.Duplicates)
-            for (int i = 8; i < source.Length; i++)
-                source[i] = source[i & 7];
         list = new List<T>(source);
     }
 

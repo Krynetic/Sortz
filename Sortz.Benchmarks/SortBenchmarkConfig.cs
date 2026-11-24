@@ -8,6 +8,7 @@ public sealed class SortBenchmarkConfig : ManualConfig
 {
     public SortBenchmarkConfig()
     {
+        AddLogger(new SummaryConsoleLogger());
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
