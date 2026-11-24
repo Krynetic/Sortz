@@ -714,6 +714,10 @@ public static partial class SortzNext
                 total += length;
             }
 
+            if (values.Length is >= 512 and <= 65535 &&
+                TrySortCultureProjected(values, rentedEntries, keys))
+                return true;
+
             IntroSort(entries, new CultureEntryComparer(keys),
                 2 * (BitOperations.Log2((uint)entries.Length) + 1));
 
@@ -729,6 +733,73 @@ public static partial class SortzNext
             if (keys is not null)
                 ArrayPool<byte>.Shared.Return(keys);
         }
+    }
+
+    private readonly struct CultureIndexComparer(CultureEntry[] entries, byte[] sortKeys, uint indexMask) : IComparer<int>
+    {
+        public int Compare(int x, int y) =>
+            new CultureEntryComparer(sortKeys).Compare(entries[(int)((uint)x & indexMask)],
+                entries[(int)((uint)y & indexMask)]);
+    }
+
+    // Keep the collation entries stationary and sort only compact integer keys.
+    // A prefix collision is always resolved using the complete collation keys.
+    private static bool TrySortCultureProjected(Span<string?> values, CultureEntry[] entries, byte[] sortKeys)
+    {
+        int length = values.Length;
+        int indexBits = BitOperations.Log2((uint)(length - 1)) + 1;
+        uint indexMask = (1u << indexBits) - 1;
+        uint prefixMask = ~indexMask;
+        int[]? rented = null;
+        Span<int> keys = length <= 16384 ? stackalloc int[length] :
+            (rented = ArrayPool<int>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref int data = ref MemoryMarshal.GetReference(keys);
+            ref CultureEntry source = ref MemoryMarshal.GetArrayDataReference(entries);
+            uint first = 0, varying = 0;
+            for (int i = 0; i < length; i++)
+            {
+                uint prefix = ((uint)(Unsafe.Add(ref source, i).Prefix >> 32) ^ 0x80000000u) & prefixMask;
+                if (i == 0) first = prefix;
+                varying |= first ^ prefix;
+                Unsafe.Add(ref data, i) = (int)(prefix | (uint)i);
+            }
+            if (BitOperations.PopCount(varying) < 4)
+                return false;
+
+            SortProjectedInt32(keys, indexBits);
+            int maxCollision = Math.Max(64, length / 8);
+            for (int i = maxCollision; i < length; i += maxCollision)
+                if (((uint)(keys[i] ^ keys[i - maxCollision]) & prefixMask) == 0)
+                    return false;
+
+            var comparer = new CultureIndexComparer(entries, sortKeys, indexMask);
+            for (int i = 1; i < length; i++)
+            {
+                i = NextProjectedCollision(ref data, i, length, indexMask);
+                if (i == length) break;
+                int start = i - 1, end = i + 1;
+                uint prefix = (uint)Unsafe.Add(ref data, start) & prefixMask;
+                while (end < length && ((uint)Unsafe.Add(ref data, end) & prefixMask) == prefix)
+                    end++;
+                int count = end - start;
+                if (count == 2)
+                {
+                    ref int a = ref Unsafe.Add(ref data, start);
+                    ref int b = ref Unsafe.Add(ref data, i);
+                    if (comparer.Compare(a, b) > 0) (a, b) = (b, a);
+                }
+                else
+                    IntroSort(keys.Slice(start, count), comparer, 2 * (BitOperations.Log2((uint)count) + 1));
+                i = end;
+            }
+
+            for (int i = 0; i < length; i++)
+                values[i] = Unsafe.Add(ref source, (int)((uint)Unsafe.Add(ref data, i) & indexMask)).Value;
+            return true;
+        }
+        finally { if (rented is not null) ArrayPool<int>.Shared.Return(rented); }
     }
 
     // Sort prefix and source index together as an unsigned integer. All
