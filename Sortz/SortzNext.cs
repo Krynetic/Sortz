@@ -327,6 +327,9 @@ public static partial class SortzNext
             return;
         }
 
+        if (count is >= 512 and <= 65535 && TryBucketInt32(values))
+            return;
+
         if (Vector512.IsHardwareAccelerated && count <= 1024)
         {
             SimdSort.SortInt32(values);
@@ -339,6 +342,92 @@ public static partial class SortzNext
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
+    }
+
+    // Adaptive MSD distribution: one histogram and one scatter, followed
+    // by bounded exact local sorts. Skewed inputs use the existing radix
+    // or SIMD path without modifying the source.
+    private static bool TryBucketInt32(Span<int> values)
+    {
+        int length = values.Length;
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 8, 13);
+        int buckets = 1 << width, shift = 32 - width, sign = buckets >> 1;
+        Span<int> counts = stackalloc int[buckets];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref int input = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < length; i++)
+            if (++Unsafe.Add(ref h, (int)((uint)Unsafe.Add(ref input, i) >> shift) ^ sign) > 24)
+                return false;
+
+        PrefixPrimitive(counts);
+        int[]? rented = null;
+        Span<int> scratch = length <= 16384 ? stackalloc int[length] :
+            (rented = ArrayPool<int>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref int output = ref MemoryMarshal.GetReference(scratch);
+            for (int i = 0; i < length; i++)
+            {
+                int value = Unsafe.Add(ref input, i);
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (int)((uint)value >> shift) ^ sign)++) = value;
+            }
+
+            int start = 0;
+            for (int b = 0; b < buckets; b++)
+            {
+                int end = Unsafe.Add(ref h, b), size = end - start;
+                if (size == 0) continue;
+                ref int src = ref Unsafe.Add(ref output, start);
+                ref int dst = ref Unsafe.Add(ref input, start);
+                int a = src;
+                switch (size)
+                {
+                    case 1:
+                        dst = a;
+                        break;
+                    case 2:
+                        int z = Unsafe.Add(ref src, 1);
+                        dst = Math.Min(a, z);
+                        Unsafe.Add(ref dst, 1) = Math.Max(a, z);
+                        break;
+                    case 3:
+                        int x = Unsafe.Add(ref src, 1), y = Unsafe.Add(ref src, 2);
+                        ExchangeInt32Bucket(ref a, ref x);
+                        ExchangeInt32Bucket(ref x, ref y);
+                        ExchangeInt32Bucket(ref a, ref x);
+                        dst = a;
+                        Unsafe.Add(ref dst, 1) = x;
+                        Unsafe.Add(ref dst, 2) = y;
+                        break;
+                    default:
+                        dst = a;
+                        for (int i = 1; i < size; i++)
+                        {
+                            int value = Unsafe.Add(ref src, i);
+                            int j = i;
+                            while (j > 0 && Unsafe.Add(ref dst, j - 1) > value)
+                            {
+                                Unsafe.Add(ref dst, j) = Unsafe.Add(ref dst, j - 1);
+                                j--;
+                            }
+                            Unsafe.Add(ref dst, j) = value;
+                        }
+                        break;
+                }
+                start = end;
+            }
+            return true;
+        }
+        finally { if (rented is not null) ArrayPool<int>.Shared.Return(rented); }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ExchangeInt32Bucket(ref int a, ref int b)
+    {
+        int x = a, y = b;
+        a = Math.Min(x, y);
+        b = Math.Max(x, y);
     }
 
     // For at most 65,535 elements, both frequencies and exclusive offsets
