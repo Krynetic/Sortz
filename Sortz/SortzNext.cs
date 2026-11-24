@@ -94,14 +94,13 @@ public static class SortzNext
         try
         {
             // Skip uniform digits. The highest byte flips the sign bit.
-            scoped Span<int> source = values;
-            scoped Span<int> target = scratch;
+            bool inScratch = false;
             for (int digit = 0; digit < 4; digit++)
             {
                 int shift = digit * 8;
                 uint sign = digit == 3 ? 128u : 0u;
                 Span<int> histogram = counts.Slice(digit * 256, 256);
-                int bucket = (int)((((uint)source[0] >> shift) & 255) ^ sign);
+                int bucket = (int)((((uint)values[0] >> shift) & 255) ^ sign);
                 if (histogram[bucket] == count)
                     continue;
 
@@ -113,14 +112,16 @@ public static class SortzNext
                     sum += frequency;
                 }
 
-                ScatterInt32(source, target, histogram, shift, sign);
-                scoped Span<int> temporary = source;
-                source = target;
-                target = temporary;
+                if (inScratch)
+                    ScatterInt32(scratch, values, histogram, shift, sign);
+                else
+                    ScatterInt32(values, scratch, histogram, shift, sign);
+
+                inScratch = !inScratch;
             }
 
-            if (!Unsafe.AreSame(ref MemoryMarshal.GetReference(source), ref v))
-                source.CopyTo(values);
+            if (inScratch)
+                scratch.CopyTo(values);
         }
         finally
         {
