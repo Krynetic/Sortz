@@ -485,7 +485,28 @@ public static partial class SortzNext
         ref int input = ref MemoryMarshal.GetReference(source);
         ref int output = ref MemoryMarshal.GetReference(target);
         ref ushort offsets = ref MemoryMarshal.GetReference(histogram);
-        for (int i = 0; i < source.Length; i++)
+        int i = 0, length = source.Length;
+        for (; i <= length - 4; i += 4)
+        {
+            int a = Unsafe.Add(ref input, i);
+            int b = Unsafe.Add(ref input, i + 1);
+            int c = Unsafe.Add(ref input, i + 2);
+            int d = Unsafe.Add(ref input, i + 3);
+            ref ushort pa = ref Unsafe.Add(ref offsets, (int)((((uint)a >> shift) & mask) ^ sign));
+            ref ushort pb = ref Unsafe.Add(ref offsets, (int)((((uint)b >> shift) & mask) ^ sign));
+            ref ushort pc = ref Unsafe.Add(ref offsets, (int)((((uint)c >> shift) & mask) ^ sign));
+            ref ushort pd = ref Unsafe.Add(ref offsets, (int)((((uint)d >> shift) & mask) ^ sign));
+            // Counters may alias: advance each in original input order.
+            int ia = pa; pa = (ushort)(ia + 1);
+            int ib = pb; pb = (ushort)(ib + 1);
+            int ic = pc; pc = (ushort)(ic + 1);
+            int id = pd; pd = (ushort)(id + 1);
+            Unsafe.Add(ref output, ia) = a;
+            Unsafe.Add(ref output, ib) = b;
+            Unsafe.Add(ref output, ic) = c;
+            Unsafe.Add(ref output, id) = d;
+        }
+        for (; i < length; i++)
         {
             int value = Unsafe.Add(ref input, i);
             int bucket = (int)((((uint)value >> shift) & mask) ^ sign);
