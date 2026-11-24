@@ -22,12 +22,12 @@ The default package version is defined in the library project. Override it for a
 dotnet pack Sortz/Sortz.csproj -c Release -p:Version=0.1.0 -o artifacts/nuget
 ```
 
-This produces a `.nupkg` library package and a `.snupkg` portable symbol package. Tests and benchmarks are not packed.
+This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. Tests and benchmarks are not packed.
 
 After choosing a license, verifying availability or ownership of the package ID, and obtaining a NuGet.org API key, publish the package manually:
 
 ```sh
-dotnet nuget push artifacts/nuget/Sortz.0.1.0.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY"
+dotnet nuget push artifacts/nuget/Krynetic.Sortz.0.1.0.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY"
 ```
 
 Keep the API key in an environment variable or secure credential store. The project does not publish automatically.

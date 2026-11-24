@@ -7,7 +7,7 @@
     <LangVersion>preview</LangVersion>
 
     <IsPackable>true</IsPackable>
-    <PackageId>Sortz</PackageId>
+    <PackageId>Krynetic.Sortz</PackageId>
     <Version>0.1.0</Version>
     <Authors>Krynetic</Authors>
     <Company>Krynetic</Company>

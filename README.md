@@ -43,7 +43,7 @@ Requires .NET 11. Sortz has no additional runtime package dependencies.
 Once the package is available on NuGet:
 
 ```sh
-dotnet add package Sortz
+dotnet add package Krynetic.Sortz
 ```
 
 Or reference the library project directly when working from the repository.
@@ -134,5 +134,15 @@ When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized pa
 dotnet build Sortz.sln -c Release
 dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
 ```
+
+## Run benchmarks
+
+From the repository root, using the .NET 11 SDK:
+
+```sh
+dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+```
+
+This runs the sorting comparison suite. To discover available benchmarks, select individual types, or locate the reports, see [benchmark documentation](docs/benchmarks.md).
 
 Maintainers: see [packaging and publishing](docs/publishing.md).

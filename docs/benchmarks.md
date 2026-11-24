@@ -28,8 +28,37 @@ All times are in nanoseconds (ns) per sort. The input distribution is random, an
 | string (culture) | 23053.10 | 2966.50 | 303210.70 | 25621.50 | 4317443.70 | 285967.10 |
 | object benchmark | 2208.00 | 2173.00 | 27507.00 | 28354.00 | 557315.00 | 483546.00 |
 
-## Reproduce
+## Running benchmarks locally
+
+Install the .NET 11 SDK, clone the repository, and run these commands from its root.
+
+### Run the complete sorting comparison suite
 
 ```sh
 dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
 ```
+
+### List available benchmarks
+
+```sh
+dotnet run -c Release --project Sortz.Benchmarks -- --list flat
+```
+
+### Filter benchmarks
+
+Use BenchmarkDotNet wildcard filters against the names listed above:
+
+```sh
+dotnet run -c Release --project Sortz.Benchmarks -- --filter '*DoubleSortBenchmarks*' --exporters json
+dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortzNextSort*' --exporters json
+```
+
+The second command runs SortzNext only; retain both sorting methods when measuring comparative speedups.
+
+### Results and CLI options
+
+```sh
+dotnet run -c Release --project Sortz.Benchmarks -- --help
+```
+
+BenchmarkDotNet prints the summary to the terminal and writes reports under `BenchmarkDotNet.Artifacts/results/` by default, including JSON when requested above. Compare the Mean column for DefaultListSort and SortzNextSort at matching parameter values. Use Release builds, consistent hardware and runtime settings, and avoid other intensive workloads when measuring performance.
