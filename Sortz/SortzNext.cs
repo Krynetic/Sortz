@@ -813,7 +813,7 @@ public static partial class SortzNext
             return;
         }
 
-        if (count <= 65535 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
+        if (count <= 4096 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
             TrySortOrdinal32(values))
             return;
 
@@ -967,19 +967,48 @@ public static partial class SortzNext
                 ArrayPool<string?>.Shared.Return(references);
             }
 
-            for (int start = 0; start < count;)
+            ref ulong keyData = ref MemoryMarshal.GetReference(keys);
+            for (int next = 1; next < count; next++)
             {
+                next = NextOrdinalCollision64(ref keyData, next, count, indexMask);
+                if (next == count) break;
+                int start = next - 1, end = next + 1;
                 ulong prefix = keys[start] >> indexBits;
-                int end = start + 1;
                 while (end < count && (keys[end] >> indexBits) == prefix)
                     end++;
-                if (end - start > 1)
+                if (end - start == 2)
+                {
+                    if (string.CompareOrdinal(values[start], values[next]) > 0)
+                        (values[start], values[next]) = (values[next], values[start]);
+                }
+                else
                     SortOrdinalBuckets(values[start..end], 6, 32);
-                start = end;
+                next = end;
             }
             return true;
         }
         finally { ArrayPool<ulong>.Shared.Return(rented); }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int NextOrdinalCollision64(ref ulong keys, int index, int length, ulong indexMask)
+    {
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var mask = Vector512.Create(~indexMask);
+            for (; index <= length - 8; index += 8)
+            {
+                var a = Vector512.LoadUnsafe(ref keys, (nuint)index);
+                var b = Vector512.LoadUnsafe(ref keys, (nuint)(index - 1));
+                uint matches = (uint)Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals((a ^ b) & mask, Vector512<ulong>.Zero));
+                if (matches != 0) return index + BitOperations.TrailingZeroCount(matches);
+            }
+        }
+        for (; index < length; index++)
+            if (((Unsafe.Add(ref keys, index) ^ Unsafe.Add(ref keys, index - 1)) & ~indexMask) == 0)
+                break;
+        return index;
     }
 
     private static void SortPrefix30(Span<ulong> keys, int shift)
@@ -1019,7 +1048,7 @@ public static partial class SortzNext
         finally { ArrayPool<ulong>.Shared.Return(rented); }
     }
 
-    // Compact three- or four-code-unit prefixes when the observed alphabet occupies a
+    // Compact four-code-unit prefixes when the observed alphabet occupies a
     // narrow contiguous range. The range is checked for every key before use.
     [InlineArray(128)]
     private struct SmallReferenceBuffer
@@ -1031,7 +1060,7 @@ public static partial class SortzNext
     {
         int count = values.Length;
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
-        int units = count <= 4096 ? 4 : 3;
+        const int units = 4;
         int width = (31 - indexBits) / units;
         if (width < 4)
             return false;
@@ -1049,10 +1078,8 @@ public static partial class SortzNext
         uint symbolMask = (1u << width) - 1;
         ulong baseValue = (ulong)(min & ~(int)(symbolMask >> 1));
         const ulong lanes = 0x0001000100010001UL;
-        ulong activeLanes = units == 4 ? lanes : lanes & 0x0000ffffffffffffUL;
-        ulong repeatedBase = baseValue * activeLanes;
-        ulong mask = (ulong)symbolMask * activeLanes;
-        ulong activeBits = units == 4 ? ulong.MaxValue : 0x0000ffffffffffffUL;
+        ulong repeatedBase = baseValue * lanes;
+        ulong mask = (ulong)symbolMask * lanes;
         ulong reversedMask = BinaryPrimitives.ReverseEndianness(mask);
         uint indexMask = (1u << indexBits) - 1;
         int[]? rentedKeys = null;
@@ -1067,7 +1094,7 @@ public static partial class SortzNext
             if (value is null || value.Length < 4)
                 return false;
             ref byte data = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
-            ulong adjusted = (Unsafe.ReadUnaligned<ulong>(ref data) - repeatedBase) & activeBits;
+            ulong adjusted = Unsafe.ReadUnaligned<ulong>(ref data) - repeatedBase;
             if ((adjusted & ~mask) != 0)
                 return false;
             ulong prefix = Bmi2.X64.ParallelBitExtract(
