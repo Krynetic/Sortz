@@ -660,6 +660,10 @@ public static class SortzNext
             TrySortOrdinal32(values))
             return;
 
+        if (count is > 4096 and <= 65535 && Bmi2.X64.IsSupported &&
+            BitConverter.IsLittleEndian && TrySortOrdinal40(values))
+            return;
+
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
         ulong indexMask = (1UL << indexBits) - 1;
         int units = (64 - indexBits) / 8;
@@ -749,6 +753,113 @@ public static class SortzNext
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
         }
+    }
+
+    // Eight UTF-16 code units compressed to a 40-bit monotone prefix.
+    // The range is verified on all elements, and equal keys are resolved ordinally.
+    private static bool TrySortOrdinal40(Span<string?> values)
+    {
+        int count = values.Length;
+        int min = char.MaxValue;
+        for (int i = 0; i < 8; i++)
+        {
+            string? value = values[i];
+            if (value is null || value.Length < 8)
+                return false;
+            for (int j = 0; j < 8; j++)
+                min = Math.Min(min, value[j]);
+        }
+
+        const ulong lanes = 0x0001000100010001UL;
+        const ulong mask = 31UL * lanes;
+        ulong repeatedBase = (ulong)(min & ~15) * lanes;
+        ulong reversedMask = BinaryPrimitives.ReverseEndianness(mask);
+        int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
+        ulong indexMask = (1UL << indexBits) - 1;
+        ulong[] rented = ArrayPool<ulong>.Shared.Rent(count);
+        Span<ulong> keys = rented.AsSpan(0, count);
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                string? value = values[i];
+                if (value is null || value.Length < 8)
+                    return false;
+                ref byte first = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
+                ulong a = Unsafe.ReadUnaligned<ulong>(ref first) - repeatedBase;
+                ulong b = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref first, 8)) - repeatedBase;
+                if (((a | b) & ~mask) != 0)
+                    return false;
+                ulong prefix = (Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(a), reversedMask) << 20)
+                    | Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(b), reversedMask);
+                keys[i] = (prefix << indexBits) | (uint)i;
+            }
+
+            SortPrefix40(keys, indexBits);
+            string?[] references = ArrayPool<string?>.Shared.Rent(count);
+            Span<string?> original = references.AsSpan(0, count);
+            try
+            {
+                values.CopyTo(original);
+                for (int i = 0; i < count; i++)
+                    values[i] = original[(int)(keys[i] & indexMask)];
+            }
+            finally
+            {
+                original.Clear();
+                ArrayPool<string?>.Shared.Return(references);
+            }
+
+            for (int start = 0; start < count;)
+            {
+                ulong prefix = keys[start] >> indexBits;
+                int end = start + 1;
+                while (end < count && (keys[end] >> indexBits) == prefix)
+                    end++;
+                if (end - start > 1)
+                    SortOrdinalBuckets(values[start..end], 8, 32);
+                start = end;
+            }
+            return true;
+        }
+        finally { ArrayPool<ulong>.Shared.Return(rented); }
+    }
+
+    private static void SortPrefix40(Span<ulong> keys, int shift)
+    {
+        Span<int> counts = stackalloc int[4096];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref ulong source = ref MemoryMarshal.GetReference(keys);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            ulong k = Unsafe.Add(ref source, i) >> shift;
+            Unsafe.Add(ref h, (int)(k & 1023))++;
+            Unsafe.Add(ref h, 1024 + (int)((k >> 10) & 1023))++;
+            Unsafe.Add(ref h, 2048 + (int)((k >> 20) & 1023))++;
+            Unsafe.Add(ref h, 3072 + (int)(k >> 30))++;
+        }
+        ulong[] rented = ArrayPool<ulong>.Shared.Rent(keys.Length);
+        Span<ulong> scratch = rented.AsSpan(0, keys.Length);
+        try
+        {
+            for (int digit = 0; digit < 4; digit++)
+            {
+                Span<int> histogram = counts.Slice(digit * 1024, 1024);
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
+                if ((digit & 1) == 0)
+                    ScatterUInt64Wide(keys, scratch, histogram, shift + digit * 10, 1023);
+                else
+                    ScatterUInt64Wide(scratch, keys, histogram, shift + digit * 10, 1023);
+            }
+        }
+        finally { ArrayPool<ulong>.Shared.Return(rented); }
     }
 
     // Compact four-code-unit prefixes when the observed alphabet occupies a
