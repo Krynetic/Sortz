@@ -1,0 +1,23 @@
+name: Sorting benchmarks
+on:
+  workflow_dispatch:
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+      - run: dotnet run -c Release --project Compress.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+      - name: Publish results
+        if: always()
+        run: |
+          for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
+            [ -f "$report" ] && cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: BenchmarkDotNet.Artifacts/results/
