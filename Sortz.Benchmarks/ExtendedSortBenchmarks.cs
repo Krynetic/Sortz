@@ -9,7 +9,7 @@ public abstract class TypedSortBenchmark<T>
     public int Count { get; set; }
 
     private T[] source = null!;
-    private List<T> list = null!;
+    private List<T>[] lists = null!;
     protected virtual IComparer<T>? Comparer => null;
     protected abstract T[] Create(Random random, int count);
 
@@ -17,17 +17,29 @@ public abstract class TypedSortBenchmark<T>
     public void Setup()
     {
         source = Create(new Random(42), Count);
-        list = new List<T>(source);
+        lists = new List<T>[SortBenchmarkConfig.BatchSize];
+        for (int i = 0; i < lists.Length; i++) lists[i] = new List<T>(source);
     }
 
     [IterationSetup]
-    public void Reset() => source.AsSpan().CopyTo(CollectionsMarshal.AsSpan(list));
+    public void Reset()
+    {
+        foreach (var list in lists) source.AsSpan().CopyTo(CollectionsMarshal.AsSpan(list));
+    }
 
-    [Benchmark(Baseline = true)]
-    public void DefaultListSort() => list.Sort(Comparer);
+    [Benchmark(Baseline = true, OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void DefaultListSort()
+    {
+        var comparer = Comparer;
+        foreach (var list in lists) list.Sort(comparer);
+    }
 
-    [Benchmark]
-    public void SortzNextSort() => SortzNext.Sort(CollectionsMarshal.AsSpan(list), Comparer);
+    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void SortzNextSort()
+    {
+        var comparer = Comparer;
+        foreach (var list in lists) SortzNext.Sort(CollectionsMarshal.AsSpan(list), comparer);
+    }
 }
 
 [MemoryDiagnoser]

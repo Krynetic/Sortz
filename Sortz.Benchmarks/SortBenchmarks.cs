@@ -18,35 +18,55 @@ public class SortBenchmarks
     public int Count { get; set; }
 
     private int[] source = null!;
-    private int[] array = null!;
-    private List<int> list = null!;
+    private int[][] arrays = null!;
+    private List<int>[] lists = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         source = SortInputs.Create(Count, (int)InputPattern.Random);
-        array = new int[Count];
-        list = new List<int>(source);
+        arrays = new int[SortBenchmarkConfig.BatchSize][];
+        lists = new List<int>[SortBenchmarkConfig.BatchSize];
+        for (int i = 0; i < arrays.Length; i++)
+        {
+            arrays[i] = new int[Count];
+            lists[i] = new List<int>(source);
+        }
     }
 
-    // BenchmarkDotNet uses one invocation per iteration with IterationSetup.
-    // Restore input outside the timed workload.
+    // Each invocation sorts independent buffers restored outside the timed workload.
+    // OperationsPerInvoke reports mean time per sort, not per batch.
     [IterationSetup]
     public void Reset()
     {
-        source.AsSpan().CopyTo(array);
-        source.AsSpan().CopyTo(CollectionsMarshal.AsSpan(list));
+        for (int i = 0; i < arrays.Length; i++)
+        {
+            source.AsSpan().CopyTo(arrays[i]);
+            source.AsSpan().CopyTo(CollectionsMarshal.AsSpan(lists[i]));
+        }
     }
 
-    [Benchmark(Baseline = true)]
-    public void DefaultListSort() => list.Sort();
+    [Benchmark(Baseline = true, OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void DefaultListSort()
+    {
+        foreach (var list in lists) list.Sort();
+    }
 
-    [Benchmark]
-    public void BuiltInArraySort() => Array.Sort(array);
+    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void BuiltInArraySort()
+    {
+        foreach (var array in arrays) Array.Sort(array);
+    }
 
-    [Benchmark]
-    public void BuiltInSpanSort() => CollectionsMarshal.AsSpan(list).Sort();
+    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void BuiltInSpanSort()
+    {
+        foreach (var list in lists) CollectionsMarshal.AsSpan(list).Sort();
+    }
 
-    [Benchmark]
-    public void SortzNextSort() => SortzNext.Sort(CollectionsMarshal.AsSpan(list));
+    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
+    public void SortzNextSort()
+    {
+        foreach (var list in lists) SortzNext.Sort(CollectionsMarshal.AsSpan(list));
+    }
 }
