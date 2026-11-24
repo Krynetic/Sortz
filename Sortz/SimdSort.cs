@@ -197,42 +197,34 @@ internal static class SimdSort
             int half = width / 2;
             for (int start = 0; start < values.Length; start += width)
             {
-                // Fuse the mirrored block exchange with the upper-half reversal.
-                // Load both right blocks before writing either of them.
-                if (half == lanes)
+                for (int i = 0; i < half; i += lanes)
                 {
-                    nuint a = (nuint)start, b = (nuint)(start + half);
+                    nuint a = (nuint)(start + i), b = (nuint)(start + width - lanes - i);
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseInt32);
                     Vector512.Min(left, right).StoreUnsafe(ref data, a);
                     Vector512.Max(left, right).StoreUnsafe(ref data, b);
                 }
-                else
+                // The upper half is now in reversed block order. Reverse it back
+                // to make both halves bitonic in the same orientation.
+                for (int i = 0; i < half / 2; i += lanes)
                 {
-                    for (int i = 0; i < half / 2; i += lanes)
-                    {
-                        nuint a = (nuint)(start + i), b = (nuint)(start + half - lanes - i);
-                        nuint c = (nuint)(start + half + i), d = (nuint)(start + width - lanes - i);
-                        var l0 = Vector512.LoadUnsafe(ref data, a);
-                        var l1 = Vector512.LoadUnsafe(ref data, b);
-                        var r0 = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, d), ReverseInt32);
-                        var r1 = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, c), ReverseInt32);
-                        Vector512.Min(l0, r0).StoreUnsafe(ref data, a);
-                        Vector512.Min(l1, r1).StoreUnsafe(ref data, b);
-                        Vector512.Max(l0, r0).StoreUnsafe(ref data, c);
-                        Vector512.Max(l1, r1).StoreUnsafe(ref data, d);
-                    }
+                    nuint a = (nuint)(start + half + i), b = (nuint)(start + width - lanes - i);
+                    var left = Vector512.LoadUnsafe(ref data, a);
+                    var right = Vector512.LoadUnsafe(ref data, b);
+                    right.StoreUnsafe(ref data, a);
+                    left.StoreUnsafe(ref data, b);
                 }
                 for (int distance = half / 2; distance >= lanes; distance /= 2)
-                    for (int block = 0; block < width; block += distance * 2)
-                        for (int i = block; i < block + distance; i += lanes)
-                        {
-                            nuint a = (nuint)(start + i), b = (nuint)(start + i + distance);
-                            var left = Vector512.LoadUnsafe(ref data, a);
-                            var right = Vector512.LoadUnsafe(ref data, b);
-                            Vector512.Min(left, right).StoreUnsafe(ref data, a);
-                            Vector512.Max(left, right).StoreUnsafe(ref data, b);
-                        }
+                    for (int i = 0; i < width; i += lanes)
+                    {
+                        if ((i & distance) != 0) continue;
+                        nuint a = (nuint)(start + i), b = (nuint)(start + i + distance);
+                        var left = Vector512.LoadUnsafe(ref data, a);
+                        var right = Vector512.LoadUnsafe(ref data, b);
+                        Vector512.Min(left, right).StoreUnsafe(ref data, a);
+                        Vector512.Max(left, right).StoreUnsafe(ref data, b);
+                    }
                 for (int i = 0; i < width; i += lanes)
                 {
                     nuint offset = (nuint)(start + i);

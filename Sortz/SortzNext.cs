@@ -374,7 +374,13 @@ public static partial class SortzNext
                 if (histogram[(int)(((first >> shift) & mask) ^ sign)] == count)
                     continue;
 
-                PrefixCompact(histogram);
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = (ushort)sum;
+                    sum += frequency;
+                }
 
                 if (inScratch)
                     ScatterCompact(scratch, values, histogram, shift, mask, sign);
@@ -387,37 +393,6 @@ public static partial class SortzNext
         finally
         {
             if (rented is not null) ArrayPool<int>.Shared.Return(rented);
-        }
-    }
-
-    // Exclusive prefix scan of compact counters. Each AVX2 lane scans eight
-    // ushort counters independently, then receives its scalar carry.
-    private static void PrefixCompact(Span<ushort> histogram)
-    {
-        int sum = 0, i = 0;
-        ref ushort data = ref MemoryMarshal.GetReference(histogram);
-        if (Avx2.IsSupported)
-        {
-            for (; i <= histogram.Length - 16; i += 16)
-            {
-                var v = Vector256.LoadUnsafe(ref data, (nuint)i);
-                v = Avx2.Add(v, Avx2.ShiftLeftLogical128BitLane(v.AsByte(), 2).AsUInt16());
-                v = Avx2.Add(v, Avx2.ShiftLeftLogical128BitLane(v.AsByte(), 4).AsUInt16());
-                v = Avx2.Add(v, Avx2.ShiftLeftLogical128BitLane(v.AsByte(), 8).AsUInt16());
-                int upperCarry = sum + v.GetElement(7);
-                var carry = Vector256.Create(Vector128.Create((ushort)sum),
-                    Vector128.Create((ushort)upperCarry));
-                var exclusive = Avx2.ShiftLeftLogical128BitLane(v.AsByte(), 2).AsUInt16();
-                Avx2.Add(exclusive, carry).StoreUnsafe(ref data, (nuint)i);
-                sum = upperCarry + v.GetElement(15);
-            }
-        }
-        for (; i < histogram.Length; i++)
-        {
-            ref ushort count = ref Unsafe.Add(ref data, i);
-            int frequency = count;
-            count = (ushort)sum;
-            sum += frequency;
         }
     }
 
