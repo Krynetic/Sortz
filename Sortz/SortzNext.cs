@@ -53,18 +53,13 @@ public static class SortzNext
         if (TryOrdered(values, comparer))
             return;
 
-        if (typeof(T) == typeof(string) && values.Length >= 128 &&
+        if (typeof(T) == typeof(string) && values.Length >= 2048 &&
             ReferenceEquals(comparer, Comparer<T>.Default) &&
             TrySortCultureStrings(MemoryMarshal.CreateSpan(
                 ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length)))
             return;
 
-        int depth = 2 * (BitOperations.Log2((uint)values.Length) + 1);
-        if (ReferenceEquals(comparer, Comparer<T>.Default) &&
-            ComparableReference<T>.Supported)
-            IntroSort(values, new ComparableReference<T>(), depth);
-        else
-            IntroSort(values, comparer, depth);
+        IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
 
     private static void SortInt32(Span<int> values)
@@ -104,78 +99,106 @@ public static class SortzNext
             return;
         }
 
-        // Build all four byte histograms in one traversal.
-        Span<int> counts = stackalloc int[4 * 256];
-        counts.Clear();
-        ref int h = ref MemoryMarshal.GetReference(counts);
-        ref int v = ref MemoryMarshal.GetReference(values);
-        for (i = 0; i < count; i++)
-        {
-            uint key = (uint)Unsafe.Add(ref v, i);
-            Unsafe.Add(ref h, (int)(key & 255))++;
-            Unsafe.Add(ref h, 256 + (int)((key >> 8) & 255))++;
-            Unsafe.Add(ref h, 512 + (int)((key >> 16) & 255))++;
-            Unsafe.Add(ref h, 768 + (int)((key >> 24) ^ 128))++;
-        }
-
-        int[]? rented = null;
-        Span<int> scratch = count <= 16384
-            ? stackalloc int[count]
-            : (rented = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
-
+        uint[]? rented = null;
+        Span<uint> bits = MemoryMarshal.Cast<int, uint>(values);
+        Span<uint> scratch = count <= 16384
+            ? stackalloc uint[count]
+            : (rented = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
         try
         {
-            // Skip uniform digits. The highest byte flips the sign bit.
-            bool inScratch = false;
-            for (int digit = 0; digit < 4; digit++)
-            {
-                int shift = digit * 8;
-                uint sign = digit == 3 ? 128u : 0u;
-                Span<int> histogram = counts.Slice(digit * 256, 256);
-                int bucket = (int)((((uint)values[0] >> shift) & 255) ^ sign);
-                if (histogram[bucket] == count)
-                    continue;
+            for (int j = 0; j < count; j++)
+                bits[j] ^= 0x8000_0000u;
 
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+            RadixMsd(bits, scratch);
 
-                if (inScratch)
-                    ScatterInt32(scratch, values, histogram, shift, sign);
-                else
-                    ScatterInt32(values, scratch, histogram, shift, sign);
-
-                inScratch = !inScratch;
-            }
-
-            if (inScratch)
-                scratch.CopyTo(values);
+            for (int j = 0; j < count; j++)
+                bits[j] ^= 0x8000_0000u;
         }
         finally
         {
             if (rented is not null)
-                ArrayPool<int>.Shared.Return(rented);
+                ArrayPool<uint>.Shared.Return(rented);
         }
     }
 
+    // Adaptive most-significant-digit distribution. Small buckets are
+    // finished locally, rather than traversing every element for every byte.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void ScatterInt32(ReadOnlySpan<int> source, Span<int> target,
-        Span<int> histogram, int shift, uint sign)
+    private static void RadixMsd<T>(Span<T> values, Span<T> scratch)
+        where T : unmanaged, IBinaryInteger<T>, IUnsignedNumber<T>
     {
-        ref int input = ref MemoryMarshal.GetReference(source);
-        ref int output = ref MemoryMarshal.GetReference(target);
-        ref int offsets = ref MemoryMarshal.GetReference(histogram);
-        for (int i = 0; i < source.Length; i++)
+        int length = values.Length;
+        if (length <= 24)
         {
-            int value = Unsafe.Add(ref input, i);
-            int bucket = (int)((((uint)value >> shift) & 255) ^ sign);
-            int position = Unsafe.Add(ref offsets, bucket)++;
-            Unsafe.Add(ref output, position) = value;
+            for (int i = 1; i < length; i++)
+            {
+                T key = values[i];
+                int j = i;
+                while (j > 0 && values[j - 1] > key)
+                {
+                    values[j] = values[j - 1];
+                    j--;
+                }
+                values[j] = key;
+            }
+            return;
         }
+
+        ref T input = ref MemoryMarshal.GetReference(values);
+        T first = input;
+        T varying = T.Zero;
+        for (int i = 1; i < length; i++)
+            varying |= Unsafe.Add(ref input, i) ^ first;
+        ulong mask = ulong.CreateTruncating(varying);
+        if (mask == 0)
+            return;
+
+        int significant = BitOperations.Log2(mask) + 1;
+        int width = Math.Min(significant,
+            Math.Clamp(BitOperations.Log2((uint)length) - 1, 4, 11));
+        int shift = significant - width;
+        int bucketCount = 1 << width;
+        uint bucketMask = (uint)(bucketCount - 1);
+        Span<int> offsets = stackalloc int[bucketCount];
+        offsets.Clear();
+        ref int offset = ref MemoryMarshal.GetReference(offsets);
+
+        for (int i = 0; i < length; i++)
+        {
+            int bucket = (int)((ulong.CreateTruncating(Unsafe.Add(ref input, i)) >> shift) & bucketMask);
+            Unsafe.Add(ref offset, bucket)++;
+        }
+
+        int sum = 0;
+        for (int b = 0; b < bucketCount; b++)
+        {
+            int frequency = Unsafe.Add(ref offset, b);
+            Unsafe.Add(ref offset, b) = sum;
+            sum += frequency;
+        }
+
+        ref T output = ref MemoryMarshal.GetReference(scratch);
+        for (int i = 0; i < length; i++)
+        {
+            T value = Unsafe.Add(ref input, i);
+            int bucket = (int)((ulong.CreateTruncating(value) >> shift) & bucketMask);
+            Unsafe.Add(ref output, Unsafe.Add(ref offset, bucket)++) = value;
+        }
+
+        if (shift != 0)
+        {
+            int begin = 0;
+            for (int b = 0; b < bucketCount; b++)
+            {
+                int end = Unsafe.Add(ref offset, b);
+                int size = end - begin;
+                if (size > 1)
+                    RadixMsd(scratch.Slice(begin, size), values.Slice(begin, size));
+                begin = end;
+            }
+        }
+
+        scratch.CopyTo(values);
     }
 
     private readonly record struct CultureEntry(string? Value, int Offset, int Length, ulong Prefix);
@@ -265,22 +288,6 @@ public static class SortzNext
             ArrayPool<CultureEntry>.Shared.Return(rentedEntries);
             if (keys is not null)
                 ArrayPool<byte>.Shared.Return(keys);
-        }
-    }
-
-    private readonly struct ComparableReference<T> : IComparer<T>
-    {
-        internal static readonly bool Supported = !typeof(T).IsValueType &&
-            typeof(IComparable<T>).IsAssignableFrom(typeof(T));
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Compare(T? x, T? y)
-        {
-            if (x is null)
-                return y is null ? 0 : -1;
-            if (y is null)
-                return 1;
-            return ((IComparable<T>)x).CompareTo(y);
         }
     }
 
@@ -412,53 +419,14 @@ public static class SortzNext
 
         try
         {
-            Span<int> counts = stackalloc int[8 * 256];
-            counts.Clear();
-            ref int h = ref MemoryMarshal.GetReference(counts);
             ref ulong data = ref MemoryMarshal.GetReference(bits);
-            // Transform once, rather than repeating the IEEE-754 mapping
-            // for each radix pass. The mapping is reversible, including +/-0.
             for (int i = 0; i < bits.Length; i++)
             {
                 ref ulong item = ref Unsafe.Add(ref data, i);
-                ulong key = item ^ ((ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL);
-                item = key;
-                Unsafe.Add(ref h, (byte)key)++;
-                Unsafe.Add(ref h, 256 + (byte)(key >> 8))++;
-                Unsafe.Add(ref h, 512 + (byte)(key >> 16))++;
-                Unsafe.Add(ref h, 768 + (byte)(key >> 24))++;
-                Unsafe.Add(ref h, 1024 + (byte)(key >> 32))++;
-                Unsafe.Add(ref h, 1280 + (byte)(key >> 40))++;
-                Unsafe.Add(ref h, 1536 + (byte)(key >> 48))++;
-                Unsafe.Add(ref h, 1792 + (byte)(key >> 56))++;
+                item ^= (ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL;
             }
 
-            bool inScratch = false;
-            ulong first = bits[0];
-            for (int digit = 0; digit < 8; digit++)
-            {
-                int shift = digit * 8;
-                Span<int> histogram = counts.Slice(digit * 256, 256);
-                if (histogram[(byte)(first >> shift)] == bits.Length)
-                    continue;
-
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
-
-                if (inScratch)
-                    ScatterUInt64(scratch, bits, histogram, shift);
-                else
-                    ScatterUInt64(bits, scratch, histogram, shift);
-                inScratch = !inScratch;
-            }
-
-            if (inScratch)
-                scratch.CopyTo(bits);
+            RadixMsd(bits, scratch);
 
             for (int i = 0; i < bits.Length; i++)
             {
@@ -470,21 +438,6 @@ public static class SortzNext
         {
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void ScatterUInt64(ReadOnlySpan<ulong> source, Span<ulong> target,
-        Span<int> histogram, int shift)
-    {
-        ref ulong input = ref MemoryMarshal.GetReference(source);
-        ref ulong output = ref MemoryMarshal.GetReference(target);
-        ref int offsets = ref MemoryMarshal.GetReference(histogram);
-        for (int i = 0; i < source.Length; i++)
-        {
-            ulong value = Unsafe.Add(ref input, i);
-            int bucket = (byte)(value >> shift);
-            Unsafe.Add(ref output, Unsafe.Add(ref offsets, bucket)++) = value;
         }
     }
 
@@ -527,6 +480,7 @@ public static class SortzNext
             IntroSort(values, StringComparer.Ordinal, 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IntroSort<T, TComparer>(Span<T> values, TComparer comparer, int depth)
         where TComparer : IComparer<T>
     {
