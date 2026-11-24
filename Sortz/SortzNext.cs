@@ -98,7 +98,7 @@ public static class SortzNext
     // Bind the pivot/key interface once, then reuse it for the entire scan.
     private static void SortComparableReference<T>(Span<T> values, int depth)
     {
-        while (values.Length > 16)
+        while (values.Length > 8)
         {
             if (depth-- == 0)
             {
@@ -153,6 +153,24 @@ public static class SortzNext
             }
         }
 
+        if (values.Length < 2) return;
+        if (values.Length <= 4)
+        {
+            ExchangeReference(ref values[0], ref values[1]);
+            if (values.Length == 2) return;
+            if (values.Length == 3)
+            {
+                ExchangeReference(ref values[1], ref values[2]);
+                ExchangeReference(ref values[0], ref values[1]);
+                return;
+            }
+            ExchangeReference(ref values[2], ref values[3]);
+            ExchangeReference(ref values[0], ref values[2]);
+            ExchangeReference(ref values[1], ref values[3]);
+            ExchangeReference(ref values[1], ref values[2]);
+            return;
+        }
+
         ref T input = ref MemoryMarshal.GetReference(values);
         for (int i = 1; i < values.Length; i++)
         {
@@ -166,6 +184,13 @@ public static class SortzNext
             }
             Unsafe.Add(ref input, j) = key;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ExchangeReference<T>(ref T a, ref T b)
+    {
+        if (((IComparable<T>)a!).CompareTo(b) > 0)
+            (a, b) = (b, a);
     }
 
     private static int PartitionComparableBlocks<T>(ref T data, int right, IComparable<T> pivot)
