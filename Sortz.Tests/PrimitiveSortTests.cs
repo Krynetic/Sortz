@@ -69,6 +69,19 @@ public sealed class PrimitiveSortTests
         }
     }
 
+    [Theory]
+    [InlineData(1025)]
+    [InlineData(4096)]
+    [InlineData(10000)]
+    [InlineData(65536)]
+    public void SignedInt16RadixUniformDigits(int length)
+    {
+        var random = new Random(length);
+        Check(Enumerable.Range(0, length).Select(_ => unchecked((short)((random.Next(256) << 8) | 0x9d))).ToArray());
+        Check(Enumerable.Range(0, length).Select(_ => unchecked((short)(0xfe00 | random.Next(256)))).ToArray());
+        Check(Enumerable.Range(0, length).Select(_ => unchecked((short)(0x0200 | random.Next(256)))).ToArray());
+    }
+
     [Fact]
     public void FloatingPointPayloadsAndDecimalRepresentations()
     {
