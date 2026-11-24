@@ -52,5 +52,5 @@ public class SortBenchmarks
     public void BuiltInSpanSort() => CollectionsMarshal.AsSpan(list).Sort();
 
     [Benchmark]
-    public void CompressorNextSort() => list.SortNext();
+    public void CompressorNextSort() => CompressorNext.Sort(CollectionsMarshal.AsSpan(list));
 }
