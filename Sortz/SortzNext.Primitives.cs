@@ -699,7 +699,7 @@ public static partial class SortzNext
             }
 
             if (BitOperations.PopCount(varying) < 4) return false;
-            SortInt32(keys);
+            SortProjectedInt32(keys, indexBits);
             int maxCollision = Math.Max(64, length / 8);
             for (int i = maxCollision; i < length; i += maxCollision)
                 if (((uint)keys[i] & ~indexMask) == ((uint)keys[i - maxCollision] & ~indexMask))
