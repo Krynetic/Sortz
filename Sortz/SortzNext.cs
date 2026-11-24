@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Sortz;
@@ -21,8 +23,127 @@ public static class SortzNext
         if (values.Length < 2)
             return;
 
+        if (typeof(T) == typeof(int) &&
+            (comparer is null || ReferenceEquals(comparer, Comparer<T>.Default)))
+        {
+            SortInt32(MemoryMarshal.CreateSpan(
+                ref Unsafe.As<T, int>(ref MemoryMarshal.GetReference(values)), values.Length));
+            return;
+        }
+
         IntroSort(values, comparer ?? Comparer<T>.Default,
             2 * (BitOperations.Log2((uint)values.Length) + 1));
+    }
+
+    private static void SortInt32(Span<int> values)
+    {
+        int count = values.Length;
+
+        // Ordered and reverse-ordered inputs require no scratch storage.
+        int i = 1;
+        while (i < count && values[i - 1] <= values[i])
+            i++;
+        if (i == count)
+            return;
+
+        i = 1;
+        while (i < count && values[i - 1] >= values[i])
+            i++;
+        if (i == count)
+        {
+            values.Reverse();
+            return;
+        }
+
+        if (count <= 32)
+        {
+            for (i = 1; i < count; i++)
+            {
+                int key = values[i];
+                int j = i;
+                while (j > 0 && values[j - 1] > key)
+                {
+                    values[j] = values[j - 1];
+                    j--;
+                }
+
+                values[j] = key;
+            }
+            return;
+        }
+
+        // Build all four byte histograms in one traversal.
+        Span<int> counts = stackalloc int[4 * 256];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref int v = ref MemoryMarshal.GetReference(values);
+        for (i = 0; i < count; i++)
+        {
+            uint key = (uint)Unsafe.Add(ref v, i);
+            Unsafe.Add(ref h, (int)(key & 255))++;
+            Unsafe.Add(ref h, 256 + (int)((key >> 8) & 255))++;
+            Unsafe.Add(ref h, 512 + (int)((key >> 16) & 255))++;
+            Unsafe.Add(ref h, 768 + (int)((key >> 24) ^ 128))++;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = count <= 16384
+            ? stackalloc int[count]
+            : (rented = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+
+        try
+        {
+            // Skip uniform digits. The highest byte flips the sign bit.
+            bool inScratch = false;
+            for (int digit = 0; digit < 4; digit++)
+            {
+                int shift = digit * 8;
+                uint sign = digit == 3 ? 128u : 0u;
+                Span<int> histogram = counts.Slice(digit * 256, 256);
+                int bucket = (int)((((uint)values[0] >> shift) & 255) ^ sign);
+                if (histogram[bucket] == count)
+                    continue;
+
+                int sum = 0;
+                for (int b = 0; b < 256; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
+
+                if (inScratch)
+                    ScatterInt32(scratch, values, histogram, shift, sign);
+                else
+                    ScatterInt32(values, scratch, histogram, shift, sign);
+
+                inScratch = !inScratch;
+            }
+
+            if (inScratch)
+                scratch.CopyTo(values);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterInt32(ReadOnlySpan<int> source, Span<int> target,
+        Span<int> histogram, int shift, uint sign)
+    {
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref int offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value >> shift) & 255) ^ sign);
+            int position = Unsafe.Add(ref offsets, bucket)++;
+            Unsafe.Add(ref output, position) = value;
+        }
     }
 
     private static void IntroSort<T>(Span<T> values, IComparer<T> comparer, int depth)
