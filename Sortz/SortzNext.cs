@@ -435,6 +435,10 @@ public static class SortzNext
             return;
         }
 
+        if (count <= 4096 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
+            TrySortOrdinal32(values))
+            return;
+
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
         ulong indexMask = (1UL << indexBits) - 1;
         int units = (64 - indexBits) / 8;
@@ -524,6 +528,78 @@ public static class SortzNext
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
         }
+    }
+
+    // Compact four-code-unit prefixes when the observed alphabet occupies a
+    // narrow contiguous range. The range is checked for every key before use.
+    private static bool TrySortOrdinal32(Span<string?> values)
+    {
+        int count = values.Length;
+        int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
+        int width = (31 - indexBits) / 4;
+        if (width < 4)
+            return false;
+
+        int min = char.MaxValue;
+        for (int i = 0; i < Math.Min(count, 8); i++)
+        {
+            string? value = values[i];
+            if (value is null || value.Length < 4)
+                return false;
+            for (int j = 0; j < 4; j++)
+                min = Math.Min(min, value[j]);
+        }
+
+        uint symbolMask = (1u << width) - 1;
+        ulong baseValue = (ulong)(min & ~(int)(symbolMask >> 1));
+        ulong repeatedBase = baseValue * 0x0001000100010001UL;
+        ulong mask = (ulong)symbolMask * 0x0001000100010001UL;
+        ulong reversedMask = BinaryPrimitives.ReverseEndianness(mask);
+        uint indexMask = (1u << indexBits) - 1;
+        Span<int> keys = stackalloc int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            string? value = values[i];
+            if (value is null || value.Length < 4)
+                return false;
+            ref byte data = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
+            ulong adjusted = Unsafe.ReadUnaligned<ulong>(ref data) - repeatedBase;
+            if ((adjusted & ~mask) != 0)
+                return false;
+            ulong prefix = Bmi2.X64.ParallelBitExtract(
+                BinaryPrimitives.ReverseEndianness(adjusted), reversedMask);
+            keys[i] = (int)((prefix << indexBits) | (uint)i);
+        }
+
+        SortInt32(keys);
+
+        string?[] rented = ArrayPool<string?>.Shared.Rent(count);
+        Span<string?> original = rented.AsSpan(0, count);
+        try
+        {
+            values.CopyTo(original);
+            for (int i = 0; i < count; i++)
+                values[i] = original[(int)((uint)keys[i] & indexMask)];
+        }
+        finally
+        {
+            original.Clear();
+            ArrayPool<string?>.Shared.Return(rented);
+        }
+
+        for (int start = 0; start < count;)
+        {
+            uint prefix = (uint)keys[start] >> indexBits;
+            int end = start + 1;
+            while (end < count && ((uint)keys[end] >> indexBits) == prefix)
+                end++;
+            if (end - start > 1)
+                SortOrdinalBuckets(values[start..end], 4, 32);
+            start = end;
+        }
+
+        return true;
     }
 
     // In-place MSD bucket distribution for Latin-1 code units, with a
@@ -655,7 +731,7 @@ public static class SortzNext
                 Swap(values, nanCount++, i);
 
         Span<double> numbers = values[nanCount..];
-        if (numbers.Length >= 512 && TrySortProjected(numbers))
+        if (numbers.Length is >= 512 and < 4096 && TrySortProjected(numbers))
             return;
 
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
