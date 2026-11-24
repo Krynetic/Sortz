@@ -56,7 +56,7 @@ internal static class SimdSort
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseInt32);
                     Vector512.Min(left, right).StoreUnsafe(ref data, a);
-                    Vector512.Shuffle(Vector512.Max(left, right), ReverseInt32).StoreUnsafe(ref data, b);
+                    Vector512.Max(left, right).StoreUnsafe(ref data, b);
                 }
                 // The upper half is now in reversed block order. Reverse it back
                 // to make both halves bitonic in the same orientation.
@@ -65,13 +65,8 @@ internal static class SimdSort
                     nuint a = (nuint)(start + half + i), b = (nuint)(start + width - lanes - i);
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.LoadUnsafe(ref data, b);
-                    Vector512.Shuffle(right, ReverseInt32).StoreUnsafe(ref data, a);
-                    Vector512.Shuffle(left, ReverseInt32).StoreUnsafe(ref data, b);
-                }
-                if (half == lanes)
-                {
-                    nuint b = (nuint)(start + half);
-                    Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseInt32).StoreUnsafe(ref data, b);
+                    right.StoreUnsafe(ref data, a);
+                    left.StoreUnsafe(ref data, b);
                 }
                 for (int distance = half / 2; distance >= lanes; distance /= 2)
                     for (int i = 0; i < width; i += lanes)
@@ -169,7 +164,7 @@ internal static class SimdSort
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseUInt64);
                     Vector512.Min(left, right).StoreUnsafe(ref data, a);
-                    Vector512.Shuffle(Vector512.Max(left, right), ReverseUInt64).StoreUnsafe(ref data, b);
+                    Vector512.Max(left, right).StoreUnsafe(ref data, b);
                 }
                 // The upper half is now in reversed block order. Reverse it back
                 // to make both halves bitonic in the same orientation.
@@ -178,13 +173,8 @@ internal static class SimdSort
                     nuint a = (nuint)(start + half + i), b = (nuint)(start + width - lanes - i);
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.LoadUnsafe(ref data, b);
-                    Vector512.Shuffle(right, ReverseUInt64).StoreUnsafe(ref data, a);
-                    Vector512.Shuffle(left, ReverseUInt64).StoreUnsafe(ref data, b);
-                }
-                if (half == lanes)
-                {
-                    nuint b = (nuint)(start + half);
-                    Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseUInt64).StoreUnsafe(ref data, b);
+                    right.StoreUnsafe(ref data, a);
+                    left.StoreUnsafe(ref data, b);
                 }
                 for (int distance = half / 2; distance >= lanes; distance /= 2)
                     for (int i = 0; i < width; i += lanes)
