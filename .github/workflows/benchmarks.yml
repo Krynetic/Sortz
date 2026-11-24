@@ -10,12 +10,13 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           allow-preview: true
+      - run: dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
       - run: dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
       - name: Publish results
         if: always()
         run: |
           for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
-            [ -f "$report" ] && cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
           done
       #- uses: actions/upload-artifact@v7
       #  if: always()
