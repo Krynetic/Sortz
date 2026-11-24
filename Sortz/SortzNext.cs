@@ -1145,6 +1145,12 @@ public static class SortzNext
         if (bits.Length < 2)
             return;
 
+        if (numbers.Length == 128 && Vector512.IsHardwareAccelerated && !ContainsZero(numbers))
+        {
+            SimdSort.Sort128Double(numbers);
+            return;
+        }
+
         TransformDoubleKeys(bits, false);
         try
         {
@@ -1154,6 +1160,15 @@ public static class SortzNext
         {
             TransformDoubleKeys(bits, true);
         }
+    }
+
+    private static bool ContainsZero(ReadOnlySpan<double> values)
+    {
+        ref double data = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < values.Length; i += 8)
+            if (Vector512.EqualsAny(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<double>.Zero))
+                return true;
+        return false;
     }
 
     private static bool ContainsNaN(ReadOnlySpan<double> values)
