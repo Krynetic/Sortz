@@ -82,17 +82,38 @@ public static partial class SortzNext
             return;
         }
 
-        Span<int> counts = stackalloc int[256];
+        bool striped = values.Length >= 2048;
+        Span<int> counts = stackalloc int[striped ? 1024 : 256];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
-        foreach (byte value in values)
-            Unsafe.Add(ref h, value ^ sign)++;
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        int index = 0;
+        if (striped)
+        {
+            for (; index <= values.Length - 4; index += 4)
+            {
+                Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
+                Unsafe.Add(ref h, 256 + (Unsafe.Add(ref data, index + 1) ^ sign))++;
+                Unsafe.Add(ref h, 512 + (Unsafe.Add(ref data, index + 2) ^ sign))++;
+                Unsafe.Add(ref h, 768 + (Unsafe.Add(ref data, index + 3) ^ sign))++;
+            }
+        }
+        for (; index < values.Length; index++)
+            Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
+
         int offset = 0;
         for (int i = 0; i < 256; i++)
         {
             int frequency = Unsafe.Add(ref h, i);
+            if (striped)
+                frequency += Unsafe.Add(ref h, i + 256) + Unsafe.Add(ref h, i + 512) + Unsafe.Add(ref h, i + 768);
             if (frequency == 0) continue;
-            values.Slice(offset, frequency).Fill((byte)(i ^ sign));
+            byte value = (byte)(i ^ sign);
+            if (frequency <= 8 && offset <= values.Length - 8)
+                // The following buckets overwrite any excess bytes; never write outside the span.
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref data, offset), 0x0101010101010101UL * value);
+            else
+                values.Slice(offset, frequency).Fill(value);
             offset += frequency;
         }
     }
@@ -202,6 +223,7 @@ public static partial class SortzNext
         SortPrimitiveUInt64(values);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SortPrimitiveUInt64(Span<ulong> values)
     {
         if (values.Length is >= 4096 and <= 65536 && TryBucketUInt64(values))
@@ -498,6 +520,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
         var bits = MemoryMarshal.Cast<Int128, UInt128>(values);
         UInt128 sign = UInt128.One << 127;
@@ -510,6 +533,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
         SortRadix128(values);
     }
@@ -576,6 +600,66 @@ public static partial class SortzNext
             ulong word = high ? (ulong)(value >> 64) : (ulong)value;
             Unsafe.Add(ref output, Unsafe.Add(ref h, (byte)(word >> shift))++) = value;
         }
+    }
+
+    // Use the high bits of the 128-bit integer as a monotone coarse key,
+    // packing the original index into the remaining bits. Full comparisons
+    // resolve collisions; dense prefixes fall back to the wider projection.
+    private static bool TryProjectedInteger128<T, TComparer>(Span<T> values, TComparer comparer, bool signed)
+        where T : unmanaged where TComparer : IComparer<T>
+    {
+        int length = values.Length;
+        int indexBits = BitOperations.Log2((uint)(length - 1)) + 1;
+        uint indexMask = (1u << indexBits) - 1;
+        uint sign = signed ? 0u : 0x80000000u;
+        int[]? rentedKeys = null;
+        Span<int> keys = length <= 16384 ? stackalloc int[length] :
+            (rentedKeys = ArrayPool<int>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref T input = ref MemoryMarshal.GetReference(values);
+            ref int keyData = ref MemoryMarshal.GetReference(keys);
+            uint first = 0, varying = 0;
+            for (int i = 0; i < length; i++)
+            {
+                uint prefix = ((uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, i)) >> 96) ^ sign) & ~indexMask;
+                if (i == 0) first = prefix;
+                varying |= prefix ^ first;
+                Unsafe.Add(ref keyData, i) = (int)(prefix | (uint)i);
+            }
+
+            if (BitOperations.PopCount(varying) < 4) return false;
+            SortInt32(keys);
+            int maxCollision = Math.Max(64, length / 8);
+            for (int i = maxCollision; i < length; i += maxCollision)
+                if (((uint)keys[i] & ~indexMask) == ((uint)keys[i - maxCollision] & ~indexMask))
+                    return false;
+
+            T[]? rented = null;
+            Span<T> original = length <= 4096 ? stackalloc T[length] :
+                (rented = ArrayPool<T>.Shared.Rent(length)).AsSpan(0, length);
+            try
+            {
+                values.CopyTo(original);
+                ref T copy = ref MemoryMarshal.GetReference(original);
+                for (int i = 0; i < length; i++)
+                    Unsafe.Add(ref input, i) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, i) & indexMask));
+
+                for (int start = 0; start < length;)
+                {
+                    int end = start + 1;
+                    uint prefix = (uint)Unsafe.Add(ref keyData, start) & ~indexMask;
+                    while (end < length && ((uint)Unsafe.Add(ref keyData, end) & ~indexMask) == prefix) end++;
+                    int count = end - start;
+                    if (count > 1)
+                        IntroSort(values.Slice(start, count), comparer, 2 * (BitOperations.Log2((uint)count) + 1));
+                    start = end;
+                }
+            }
+            finally { if (rented is not null) ArrayPool<T>.Shared.Return(rented); }
+            return true;
+        }
+        finally { if (rentedKeys is not null) ArrayPool<int>.Shared.Return(rentedKeys); }
     }
 
     private static readonly UInt128[] DecimalPowers =
