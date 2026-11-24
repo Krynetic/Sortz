@@ -79,14 +79,7 @@ public static class SortzNext
                 for (int i = 0; i < values.Length; i++)
                     if (values[i] is null)
                         Swap(values, first++, i);
-                Span<T> nonNull = values[first..];
-                if (nonNull.Length >= 512)
-                {
-                    T[] rented = ArrayPool<T>.Shared.Rent(nonNull.Length);
-                    try { SortSequentialReferences(nonNull, rented.AsSpan(0, nonNull.Length), false, depth); }
-                    finally { ArrayPool<T>.Shared.Return(rented, clearArray: true); }
-                }
-                else SortComparableReference(nonNull, depth);
+                SortComparableReference(values[first..], depth);
             }
             else
                 SortReference(values, Comparer<T>.Default, depth);
@@ -99,44 +92,6 @@ public static class SortzNext
     private static class ReferenceTraits<T>
     {
         internal static readonly bool Comparable = typeof(IComparable<T>).IsAssignableFrom(typeof(T));
-    }
-
-    // One comparison per partition element, sequential writes from both ends.
-    private static void SortSequentialReferences<T>(Span<T> source, Span<T> target,
-        bool resultInTarget, int depth)
-    {
-        if (source.Length < 128 || depth == 0)
-        {
-            SortComparableReference(source, depth);
-            if (resultInTarget) source.CopyTo(target);
-            return;
-        }
-
-        int last = source.Length - 1, middle = last >> 1;
-        T a = source[0], b = source[middle], c = source[last];
-        if (((IComparable<T>)a!).CompareTo(b) > 0) (a, b) = (b, a);
-        if (((IComparable<T>)a!).CompareTo(c) > 0) (a, c) = (c, a);
-        if (((IComparable<T>)b!).CompareTo(c) > 0) (b, c) = (c, b);
-        // Keep the pivot as a separate element; the remaining elements are preserved.
-        int pivotIndex = ReferenceEquals(b, source[0]) ? 0 :
-            ReferenceEquals(b, source[middle]) ? middle : last;
-        var pivot = (IComparable<T>)b!;
-        ref T input = ref MemoryMarshal.GetReference(source);
-        ref T output = ref MemoryMarshal.GetReference(target);
-        int left = 0, right = last;
-        for (int i = 0; i < source.Length; i++)
-        {
-            if (i == pivotIndex) continue;
-            T value = Unsafe.Add(ref input, i);
-            if (pivot.CompareTo(value) > 0)
-                Unsafe.Add(ref output, left++) = value;
-            else
-                Unsafe.Add(ref output, right--) = value;
-        }
-        Unsafe.Add(ref output, left) = b;
-        if (!resultInTarget) Unsafe.Add(ref input, left) = b;
-        SortSequentialReferences(target[..left], source[..left], !resultInTarget, depth - 1);
-        SortSequentialReferences(target[(left + 1)..], source[(left + 1)..], !resultInTarget, depth - 1);
     }
 
     // All values are non-null, and the caller has established IComparable<T>.
