@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -201,69 +202,13 @@ public static class SortzNext
             return;
         }
 
-        if (count <= 16384)
+        if (Avx512F.IsSupported && Vector512.IsHardwareAccelerated)
         {
-            SortInt32Buckets(values);
+            SimdPartition.SortInt32(values);
             return;
         }
 
         SortInt32Lsd(values);
-    }
-
-    private static void SortInt32Buckets(Span<int> values)
-    {
-        int count = values.Length;
-        int width = Math.Clamp(BitOperations.Log2((uint)count) - 1, 7, 11);
-        int buckets = 1 << width;
-        int shift = 32 - width;
-        uint sign = 0x8000_0000u;
-        Span<int> offsets = stackalloc int[buckets];
-        offsets.Clear();
-        Span<int> scratch = stackalloc int[count];
-        ref int input = ref MemoryMarshal.GetReference(values);
-        ref int output = ref MemoryMarshal.GetReference(scratch);
-        ref int histogram = ref MemoryMarshal.GetReference(offsets);
-
-        for (int i = 0; i < count; i++)
-            Unsafe.Add(ref histogram, (int)(((uint)Unsafe.Add(ref input, i) ^ sign) >> shift))++;
-
-        int sum = 0;
-        for (int b = 0; b < buckets; b++)
-        {
-            int frequency = Unsafe.Add(ref histogram, b);
-            Unsafe.Add(ref histogram, b) = sum;
-            sum += frequency;
-        }
-
-        for (int i = 0; i < count; i++)
-        {
-            int value = Unsafe.Add(ref input, i);
-            int bucket = (int)(((uint)value ^ sign) >> shift);
-            Unsafe.Add(ref output, Unsafe.Add(ref histogram, bucket)++) = value;
-        }
-
-        int start = 0;
-        for (int b = 0; b < buckets; b++)
-        {
-            int end = Unsafe.Add(ref histogram, b);
-            if (end - start > 32)
-                SortInt32Lsd(scratch[start..end]);
-            else
-                for (int i = start + 1; i < end; i++)
-                {
-                    int value = Unsafe.Add(ref output, i);
-                    int j = i;
-                    while (j > start && Unsafe.Add(ref output, j - 1) > value)
-                    {
-                        Unsafe.Add(ref output, j) = Unsafe.Add(ref output, j - 1);
-                        j--;
-                    }
-                    Unsafe.Add(ref output, j) = value;
-                }
-            start = end;
-        }
-
-        scratch.CopyTo(values);
     }
 
     private static void SortInt32Lsd(Span<int> values)
@@ -563,6 +508,18 @@ public static class SortzNext
                 item ^= (ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL;
 
             SimdSort.SortUInt64(bits);
+
+            foreach (ref ulong item in bits)
+                item ^= (ulong)(((long)item >> 63) ^ -1L) | 0x8000_0000_0000_0000UL;
+            return;
+        }
+
+        if (Avx512F.IsSupported && Vector512.IsHardwareAccelerated)
+        {
+            foreach (ref ulong item in bits)
+                item ^= (ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL;
+
+            SimdPartition.SortUInt64(bits);
 
             foreach (ref ulong item in bits)
                 item ^= (ulong)(((long)item >> 63) ^ -1L) | 0x8000_0000_0000_0000UL;
