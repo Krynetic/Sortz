@@ -112,6 +112,16 @@ public static partial class SortzNext
 
             ref T data = ref MemoryMarshal.GetReference(values);
             int last = values.Length - 1, middle = last >> 1;
+            if (last >= 511)
+            {
+                // Tukey ninther: improve pivot quality using nine evenly spaced values.
+                int step = last >> 3;
+                int a0 = MedianComparable(ref data, 0, step, step * 2);
+                int a1 = MedianComparable(ref data, middle - step, middle, middle + step);
+                int a2 = MedianComparable(ref data, last - step * 2, last - step, last);
+                int sample = MedianComparable(ref data, a0, a1, a2);
+                if (sample != middle) Swap(values, sample, middle);
+            }
             T a = data, b = Unsafe.Add(ref data, middle), c = Unsafe.Add(ref data, last);
             if (((IComparable<T>)a!).CompareTo(b) > 0) (a, b) = (b, a);
             if (((IComparable<T>)a!).CompareTo(c) > 0) (a, c) = (c, a);
@@ -162,14 +172,43 @@ public static partial class SortzNext
         {
             T key = Unsafe.Add(ref input, i);
             var comparable = (IComparable<T>)key!;
-            int j = i;
-            while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0)
+            if (comparable.CompareTo(Unsafe.Add(ref input, i - 1)) >= 0)
+                continue;
+            // Binary insertion reduces expensive interface calls. Shift references
+            // together through Span.CopyTo rather than comparing on every move.
+            int lo = 0, hi = i - 1;
+            while (lo < hi)
             {
-                Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
-                j--;
+                int mid = (lo + hi) >> 1;
+                if (comparable.CompareTo(Unsafe.Add(ref input, mid)) < 0)
+                    hi = mid;
+                else
+                    lo = mid + 1;
             }
-            Unsafe.Add(ref input, j) = key;
+            if (i - lo <= 3)
+            {
+                for (int j = i; j > lo; j--)
+                    Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
+            }
+            else
+                values.Slice(lo, i - lo).CopyTo(values.Slice(lo + 1, i - lo));
+            Unsafe.Add(ref input, lo) = key;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int MedianComparable<T>(ref T data, int a, int b, int c)
+    {
+        T x = Unsafe.Add(ref data, a), y = Unsafe.Add(ref data, b), z = Unsafe.Add(ref data, c);
+        var cx = (IComparable<T>)x!;
+        var cy = (IComparable<T>)y!;
+        if (cx.CompareTo(y) < 0)
+        {
+            if (cy.CompareTo(z) < 0) return b;
+            return cx.CompareTo(z) < 0 ? c : a;
+        }
+        if (cx.CompareTo(z) < 0) return a;
+        return cy.CompareTo(z) < 0 ? c : b;
     }
 
     private static int PartitionComparableBlocks<T>(ref T data, int right, IComparable<T> pivot)

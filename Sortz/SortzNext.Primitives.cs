@@ -140,28 +140,17 @@ public static partial class SortzNext
     private static void SortInt16(Span<short> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<short, ushort>(values);
-        if (values.Length <= 1024 && (Avx512BW.IsSupported || Vector512.IsHardwareAccelerated))
-        {
-            XorKeys(bits, (ushort)0x8000);
-            try { SortUInt16Core(bits); }
-            finally { XorKeys(bits, (ushort)0x8000); }
-            return;
-        }
-        SortUInt16Radix<short>(bits);
+        XorKeys(bits, (ushort)0x8000);
+        try { SortUInt16(bits); }
+        finally { XorKeys(bits, (ushort)0x8000); }
     }
 
     private static void SortUInt16(Span<ushort> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length <= 32) { InsertionInteger(values); return; }
-        SortUInt16Core(values);
-    }
-
-    private static void SortUInt16Core(Span<ushort> values)
-    {
         int length = values.Length;
+        if (length <= 32) { InsertionInteger(values); return; }
         if (Avx512BW.IsSupported && length <= 1024)
         {
             PrimitiveSimdSort.SortUInt16(values);
@@ -176,25 +165,17 @@ public static partial class SortzNext
             return;
         }
 
-        SortUInt16Radix<ushort>(values);
-    }
-
-    // Signed high-byte ordering is encoded in the histogram, not the input.
-    private static void SortUInt16Radix<T>(Span<ushort> values) where T : unmanaged
-    {
-        int length = values.Length;
-        int sign = typeof(T) == typeof(short) ? 128 : 0;
         Span<int> counts = stackalloc int[512];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
         foreach (ushort value in values)
         {
             Unsafe.Add(ref h, (byte)value)++;
-            Unsafe.Add(ref h, 256 + ((value >> 8) ^ sign))++;
+            Unsafe.Add(ref h, 256 + (value >> 8))++;
         }
         ushort first = values[0];
         bool lowUniform = counts[(byte)first] == length;
-        bool highUniform = counts[256 + ((first >> 8) ^ sign)] == length;
+        bool highUniform = counts[256 + (first >> 8)] == length;
         if (lowUniform || highUniform)
         {
             if (lowUniform && highUniform) return;
@@ -203,7 +184,7 @@ public static partial class SortzNext
             {
                 int frequency = counts[(lowUniform ? 256 : 0) + b];
                 if (frequency == 0) continue;
-                ushort value = lowUniform ? (ushort)(((b ^ sign) << 8) | (byte)first) : (ushort)((first & 0xff00) | b);
+                ushort value = lowUniform ? (ushort)((b << 8) | (byte)first) : (ushort)((first & 0xff00) | b);
                 values.Slice(offset, frequency).Fill(value);
                 offset += frequency;
             }
@@ -227,7 +208,7 @@ public static partial class SortzNext
             for (int i = 0; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref target, i);
-                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + ((value >> 8) ^ sign))++) = value;
+                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
             }
         }
         finally { if (rented is not null) ArrayPool<ushort>.Shared.Return(rented); }
