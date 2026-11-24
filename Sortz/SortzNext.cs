@@ -341,6 +341,63 @@ public static partial class SortzNext
             SortInt32Lsd(values);
     }
 
+    // Packed keys contain a source index in their low bits. Only the prefix
+    // participates in ordering; callers repair equal-prefix groups exactly.
+    private static void SortProjectedInt32(Span<int> keys, int indexBits)
+    {
+        int length = keys.Length;
+        if (length is < 4096 or > 65535)
+        {
+            SortInt32(keys);
+            return;
+        }
+
+        int lowBits = (33 - indexBits) >> 1;
+        int highBits = 32 - indexBits - lowBits;
+        int lowCount = 1 << lowBits, highCount = 1 << highBits;
+        int highShift = indexBits + lowBits;
+        uint lowMask = (uint)(lowCount - 1);
+        uint highMask = (uint)(highCount - 1), sign = (uint)(highCount >> 1);
+        Span<ushort> histogram = stackalloc ushort[lowCount + highCount];
+        histogram.Clear();
+        ref ushort counts = ref MemoryMarshal.GetReference(histogram);
+        ref int input = ref MemoryMarshal.GetReference(keys);
+        for (int i = 0; i < length; i++)
+        {
+            uint key = (uint)Unsafe.Add(ref input, i);
+            Unsafe.Add(ref counts, (int)((key >> indexBits) & lowMask))++;
+            Unsafe.Add(ref counts, lowCount + (int)((key >> highShift) ^ sign))++;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = length <= 16384 ? stackalloc int[length] :
+            (rented = ArrayPool<int>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            Span<ushort> low = histogram[..lowCount], high = histogram[lowCount..];
+            int offset = 0;
+            for (int i = 0; i < low.Length; i++)
+            {
+                int count = low[i];
+                low[i] = (ushort)offset;
+                offset += count;
+            }
+            offset = 0;
+            for (int i = 0; i < high.Length; i++)
+            {
+                int count = high[i];
+                high[i] = (ushort)offset;
+                offset += count;
+            }
+            ScatterCompact(keys, scratch, low, indexBits, lowMask, 0);
+            ScatterCompact(scratch, keys, high, highShift, highMask, sign);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
     // For at most 65,535 elements, both frequencies and exclusive offsets
     // fit in 16 bits. This halves histogram footprint without truncating keys.
     private static void SortInt32CompactRadix(Span<int> values)
@@ -1243,7 +1300,7 @@ public static partial class SortzNext
             uint tag = (uint)Math.Min(limit, (int)((Unsafe.Add(ref input, i) - min) * scale));
             Unsafe.Add(ref key, i) = (int)(((tag << indexBits) | (uint)i) ^ 0x80000000u);
         }
-        SortInt32(keys);
+        SortProjectedInt32(keys, indexBits);
 
         // Avoid large equal-prefix groups on clustered inputs.
         const int maxCollision = 32;
