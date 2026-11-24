@@ -1290,25 +1290,25 @@ public static class SortzNext
                 }
                 else if (size == 3)
                 {
-                    double a = first, b = Unsafe.Add(ref output, start + 1), d = Unsafe.Add(ref output, start + 2);
-                    ExchangeDouble(ref a, ref b);
-                    ExchangeDouble(ref b, ref d);
-                    ExchangeDouble(ref a, ref b);
+                    double a = first, second = Unsafe.Add(ref output, start + 1), d = Unsafe.Add(ref output, start + 2);
+                    ExchangeDouble(ref a, ref second);
+                    ExchangeDouble(ref second, ref d);
+                    ExchangeDouble(ref a, ref second);
                     Unsafe.Add(ref input, start) = a;
-                    Unsafe.Add(ref input, start + 1) = b;
+                    Unsafe.Add(ref input, start + 1) = second;
                     Unsafe.Add(ref input, start + 2) = d;
                 }
                 else if (size == 4)
                 {
-                    double a = first, b = Unsafe.Add(ref output, start + 1),
+                    double a = first, second = Unsafe.Add(ref output, start + 1),
                         d = Unsafe.Add(ref output, start + 2), e = Unsafe.Add(ref output, start + 3);
-                    ExchangeDouble(ref a, ref b);
+                    ExchangeDouble(ref a, ref second);
                     ExchangeDouble(ref d, ref e);
                     ExchangeDouble(ref a, ref d);
-                    ExchangeDouble(ref b, ref e);
-                    ExchangeDouble(ref b, ref d);
+                    ExchangeDouble(ref second, ref e);
+                    ExchangeDouble(ref second, ref d);
                     Unsafe.Add(ref input, start) = a;
-                    Unsafe.Add(ref input, start + 1) = b;
+                    Unsafe.Add(ref input, start + 1) = second;
                     Unsafe.Add(ref input, start + 2) = d;
                     Unsafe.Add(ref input, start + 3) = e;
                 }
