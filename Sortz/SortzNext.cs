@@ -264,10 +264,43 @@ public static class SortzNext
             return;
         }
 
-        if (count >= 4096)
+        if (count >= 1024)
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
+    }
+
+    private static readonly Vector512<int> PrefixShift1 = Vector512.Create(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+    private static readonly Vector512<int> PrefixShift2 = Vector512.Create(-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
+    private static readonly Vector512<int> PrefixShift4 = Vector512.Create(-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
+    private static readonly Vector512<int> PrefixShift8 = Vector512.Create(-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7);
+
+    // Exclusive prefix scan of counts, in 16-counter blocks.
+    private static void PrefixOffsets(Span<int> histogram)
+    {
+        ref int data = ref MemoryMarshal.GetReference(histogram);
+        int carry = 0, i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            for (; i <= histogram.Length - 16; i += 16)
+            {
+                var v = Vector512.LoadUnsafe(ref data, (nuint)i);
+                v += Vector512.Shuffle(v, PrefixShift1);
+                v += Vector512.Shuffle(v, PrefixShift2);
+                v += Vector512.Shuffle(v, PrefixShift4);
+                v += Vector512.Shuffle(v, PrefixShift8);
+                var exclusive = Vector512.Shuffle(v, PrefixShift1) + Vector512.Create(carry);
+                carry += v.GetElement(15);
+                exclusive.StoreUnsafe(ref data, (nuint)i);
+            }
+        }
+        for (; i < histogram.Length; i++)
+        {
+            ref int entry = ref Unsafe.Add(ref data, i);
+            int frequency = entry;
+            entry = carry;
+            carry += frequency;
+        }
     }
 
     private static void SortInt32Wide(Span<int> values)
@@ -299,13 +332,7 @@ public static class SortzNext
                 if (histogram[(int)((first >> shift) & mask)] == count)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixOffsets(histogram);
 
                 if (inScratch)
                     ScatterWide(scratch, values, histogram, shift, mask);
@@ -373,13 +400,7 @@ public static class SortzNext
                 if (histogram[bucket] == count)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixOffsets(histogram);
 
                 if (inScratch)
                     ScatterInt32(scratch, values, histogram, shift, sign);
@@ -983,13 +1004,7 @@ public static class SortzNext
                 ulong mask = (uint)(histogram.Length - 1);
                 if (histogram[(int)((first >> shift) & mask)] == bits.Length)
                     continue;
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixOffsets(histogram);
                 if (inScratch)
                     ScatterUInt64Wide(scratch, bits, histogram, shift, mask);
                 else
@@ -1068,13 +1083,7 @@ public static class SortzNext
                 if (histogram[(byte)(first >> shift)] == bits.Length)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixOffsets(histogram);
 
                 if (inScratch)
                     ScatterUInt64(scratch, bits, histogram, shift);
