@@ -5,10 +5,12 @@ jobs:
   benchmark:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: fast-actions/setup-dotnet@v1
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           dotnet-version: '11.0.x'
+          allow-preview: true
       - run: dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
       - name: Publish results
         if: always()
@@ -16,8 +18,8 @@ jobs:
           for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
             [ -f "$report" ] && cat "$report" >> "$GITHUB_STEP_SUMMARY"
           done
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: benchmark-results
-          path: BenchmarkDotNet.Artifacts/results/
+      #- uses: actions/upload-artifact@v7
+      #  if: always()
+      #  with:
+      #    name: benchmark-results
+      #    path: BenchmarkDotNet.Artifacts/results/
