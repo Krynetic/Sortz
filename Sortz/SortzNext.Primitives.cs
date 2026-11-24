@@ -218,32 +218,63 @@ public static partial class SortzNext
     {
         if (TryOrdered(values, Comparer<float>.Default)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<float>.Default); return; }
-        int first = 0;
-        for (int i = 0; i < values.Length; i++)
-            if (float.IsNaN(values[i])) Swap(values, first++, i);
-        var bits = MemoryMarshal.Cast<float, int>(values[first..]);
-        TransformSingle(bits);
-        try { SortInt32(bits); }
-        finally { TransformSingle(bits); }
+        var bits = MemoryMarshal.Cast<float, uint>(values);
+        TransformSingleKeys(bits, false);
+        try { SortInt32(MemoryMarshal.Cast<uint, int>(bits)); }
+        finally { TransformSingleKeys(bits, true); }
     }
 
-    private static void TransformSingle(Span<int> bits)
+    // Rotate positive NaN encodings ahead of numbers, alongside negative NaNs.
+    // This is a bijection over all 2^32 bit patterns, preserving NaN payloads
+    // and both signed zeros while agreeing with Single.CompareTo.
+    private static void TransformSingleKeys(Span<uint> bits, bool inverse)
     {
-        ref int data = ref MemoryMarshal.GetReference(bits);
+        const uint Sign = 0x80000000u, Nan = 0x007fffffu, Rotate = 0xff000002u;
+        ref uint data = ref MemoryMarshal.GetReference(bits);
         int i = 0;
         if (Vector512.IsHardwareAccelerated)
         {
-            var mask = Vector512.Create(int.MaxValue);
+            var sign = Vector512.Create(Sign);
+            var nan = Vector512.Create(Nan);
+            var rotate = Vector512.Create(Rotate);
+            var limit = Vector512.Create(inverse ? 2 * Nan : 0xff800000u);
             for (; i <= bits.Length - 16; i += 16)
             {
                 var v = Vector512.LoadUnsafe(ref data, (nuint)i);
-                (v ^ ((v >> 31) & mask)).StoreUnsafe(ref data, (nuint)i);
+                if (!inverse)
+                {
+                    v ^= ((v.AsInt32() >> 31).AsUInt32() | sign);
+                    v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
+                        Vector512.ConditionalSelect(Vector512.GreaterThan(v, limit), v - rotate, v + nan));
+                    v ^= sign;
+                }
+                else
+                {
+                    v ^= sign;
+                    v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
+                        Vector512.ConditionalSelect(Vector512.LessThan(v, limit), v + rotate, v - nan));
+                    v ^= (~(v.AsInt32() >> 31).AsUInt32() | sign);
+                }
+                v.StoreUnsafe(ref data, (nuint)i);
             }
         }
+
         for (; i < bits.Length; i++)
         {
-            ref int value = ref Unsafe.Add(ref data, i);
-            value ^= (value >> 31) & int.MaxValue;
+            ref uint item = ref Unsafe.Add(ref data, i);
+            uint v = item;
+            if (!inverse)
+            {
+                v ^= (uint)((int)v >> 31) | Sign;
+                v = v < Nan ? v : v > 0xff800000u ? v - Rotate : v + Nan;
+                item = v ^ Sign;
+            }
+            else
+            {
+                v ^= Sign;
+                v = v < Nan ? v : v < 2 * Nan ? v + Rotate : v - Nan;
+                item = v ^ (~(uint)((int)v >> 31) | Sign);
+            }
         }
     }
 
@@ -251,17 +282,57 @@ public static partial class SortzNext
     {
         if (TryOrdered(values, Comparer<Half>.Default)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<Half>.Default); return; }
-        int first = 0;
-        for (int i = 0; i < values.Length; i++)
-            if (Half.IsNaN(values[i])) Swap(values, first++, i);
-        var bits = MemoryMarshal.Cast<Half, ushort>(values[first..]);
-        foreach (ref ushort value in bits)
-            value ^= (ushort)((value & 0x8000) != 0 ? 0xffff : 0x8000);
+        var bits = MemoryMarshal.Cast<Half, ushort>(values);
+        TransformHalfKeys(bits, false);
         try { SortUInt16(bits); }
-        finally
+        finally { TransformHalfKeys(bits, true); }
+    }
+
+    // The same reversible rotation in the 16-bit IEEE-754 domain.
+    private static void TransformHalfKeys(Span<ushort> bits, bool inverse)
+    {
+        const ushort Sign = 0x8000, Nan = 0x03ff, Rotate = 0xf802;
+        ref ushort data = ref MemoryMarshal.GetReference(bits);
+        int i = 0;
+        if (Avx512BW.IsSupported)
         {
-            foreach (ref ushort value in bits)
-                value ^= (ushort)((value & 0x8000) == 0 ? 0xffff : 0x8000);
+            var sign = Vector512.Create(Sign);
+            var nan = Vector512.Create(Nan);
+            var rotate = Vector512.Create(Rotate);
+            var limit = Vector512.Create((ushort)(inverse ? 2 * Nan : 0xfc00));
+            for (; i <= bits.Length - 32; i += 32)
+            {
+                var v = Vector512.LoadUnsafe(ref data, (nuint)i);
+                if (!inverse)
+                {
+                    v ^= ((v.AsInt16() >> 15).AsUInt16() | sign);
+                    v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
+                        Vector512.ConditionalSelect(Vector512.GreaterThan(v, limit), v - rotate, v + nan));
+                }
+                else
+                {
+                    v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
+                        Vector512.ConditionalSelect(Vector512.LessThan(v, limit), v + rotate, v - nan));
+                    v ^= (~(v.AsInt16() >> 15).AsUInt16() | sign);
+                }
+                v.StoreUnsafe(ref data, (nuint)i);
+            }
+        }
+        for (; i < bits.Length; i++)
+        {
+            ref ushort item = ref Unsafe.Add(ref data, i);
+            uint v = item;
+            if (!inverse)
+            {
+                v ^= (v & Sign) != 0 ? 0xffffu : Sign;
+                v = v < Nan ? v : v > 0xfc00 ? v - Rotate : v + Nan;
+            }
+            else
+            {
+                v = v < Nan ? v : v < 2 * Nan ? v + Rotate : v - Nan;
+                v ^= (v & Sign) == 0 ? 0xffffu : Sign;
+            }
+            item = (ushort)v;
         }
     }
 
