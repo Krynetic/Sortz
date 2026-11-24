@@ -16,7 +16,13 @@ jobs:
         if: always()
         run: |
           for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
-            if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+            if [ -f "$report" ]; then
+              {
+                printf '## %s\n\n' "$(basename "$report" -report-github.md)"
+                cat "$report"
+                printf '\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
           done
       #- uses: actions/upload-artifact@v7
       #  if: always()
