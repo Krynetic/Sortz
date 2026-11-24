@@ -820,6 +820,12 @@ public static class SortzNext
         if (bits.Length < 2)
             return;
 
+        if (Vector512.IsHardwareAccelerated && bits.Length == 128)
+        {
+            SimdSort.Sort128DoubleBits(bits);
+            return;
+        }
+
         TransformDoubleKeys(bits, false);
         try
         {
