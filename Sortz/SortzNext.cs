@@ -94,8 +94,8 @@ public static class SortzNext
         try
         {
             // Skip uniform digits. The highest byte flips the sign bit.
-            Span<int> source = values;
-            Span<int> target = scratch;
+            scoped Span<int> source = values;
+            scoped Span<int> target = scratch;
             for (int digit = 0; digit < 4; digit++)
             {
                 int shift = digit * 8;
@@ -114,7 +114,7 @@ public static class SortzNext
                 }
 
                 ScatterInt32(source, target, histogram, shift, sign);
-                Span<int> temporary = source;
+                scoped Span<int> temporary = source;
                 source = target;
                 target = temporary;
             }
