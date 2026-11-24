@@ -243,7 +243,8 @@ public static partial class SortzNext
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SortPrimitiveUInt64(Span<ulong> values)
     {
-        if (values.Length is >= 4096 and <= 65536 && TryBucketUInt64(values))
+        if (values.Length is >= 4096 and <= 65536 &&
+            (TryProjectedCompact(values, Comparer<ulong>.Default, false) || TryBucketUInt64(values)))
             return;
         SortUInt64(values);
     }
@@ -537,7 +538,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
-        if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<Int128>.Default, true)) return;
+        if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
         var bits = MemoryMarshal.Cast<Int128, UInt128>(values);
         UInt128 sign = UInt128.One << 127;
@@ -550,7 +551,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
-        if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<UInt128>.Default, false)) return;
+        if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
         SortRadix128(values);
     }
@@ -619,10 +620,10 @@ public static partial class SortzNext
         }
     }
 
-    // Use the high bits of the 128-bit integer as a monotone coarse key,
+    // Use the high bits of a wide integer (or decimal prefix) as a monotone coarse key,
     // packing the original index into the remaining bits. Full comparisons
     // resolve collisions; dense prefixes fall back to the wider projection.
-    private static bool TryProjectedInteger128<T, TComparer>(Span<T> values, TComparer comparer, bool signed)
+    private static bool TryProjectedCompact<T, TComparer>(Span<T> values, TComparer comparer, bool signed)
         where T : unmanaged where TComparer : IComparer<T>
     {
         int length = values.Length;
@@ -639,7 +640,29 @@ public static partial class SortzNext
             uint first = 0, varying = 0;
             Span<int> parts = stackalloc int[4];
             int index = 0;
-            if (typeof(T) != typeof(decimal) && BitConverter.IsLittleEndian && Avx512F.IsSupported)
+            if (typeof(T) == typeof(ulong) && Vector512.IsHardwareAccelerated)
+            {
+                ref ulong words = ref Unsafe.As<T, ulong>(ref input);
+                var signMask = Vector512.Create(sign);
+                var prefixMask = Vector512.Create(~indexMask);
+                var offsets = Vector512.Create(0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u,
+                    8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u);
+                first = ((uint)(words >> 32) ^ sign) & ~indexMask;
+                var firstVector = Vector512.Create(first);
+                var differences = Vector512<uint>.Zero;
+                for (; index <= length - 16; index += 16)
+                {
+                    var a = Vector512.LoadUnsafe(ref words, (nuint)index);
+                    var b = Vector512.LoadUnsafe(ref words, (nuint)(index + 8));
+                    var prefixes = (Vector512.Narrow(a >> 32, b >> 32) ^ signMask) & prefixMask;
+                    differences |= prefixes ^ firstVector;
+                    (prefixes | (offsets + Vector512.Create((uint)index))).AsInt32()
+                        .StoreUnsafe(ref keyData, (nuint)index);
+                }
+                for (int lane = 0; lane < 16; lane++)
+                    varying |= differences.GetElement(lane);
+            }
+            else if (typeof(T) != typeof(decimal) && typeof(T) != typeof(ulong) && BitConverter.IsLittleEndian && Avx512F.IsSupported)
             {
                 ref uint words = ref Unsafe.As<T, uint>(ref input);
                 var pick = Vector512.Create(3u, 7u, 11u, 15u, 19u, 23u, 27u, 31u,
@@ -666,7 +689,9 @@ public static partial class SortzNext
             {
                 uint high = typeof(T) == typeof(decimal)
                     ? (uint)(DecimalPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, index)), parts) >> 32)
-                    : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, index)) >> 96);
+                    : typeof(T) == typeof(ulong)
+                        ? (uint)(Unsafe.As<T, ulong>(ref Unsafe.Add(ref input, index)) >> 32)
+                        : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, index)) >> 96);
                 uint prefix = (high ^ sign) & ~indexMask;
                 if (index == 0) first = prefix;
                 varying |= prefix ^ first;
@@ -832,7 +857,7 @@ public static partial class SortzNext
     private static void SortDecimal(Span<decimal> values)
     {
         if (TryOrdered(values, Comparer<decimal>.Default)) return;
-        if (values.Length is >= 64 and <= 65536 && TryProjectedInteger128(values, new DecimalComparer(), false)) return;
+        if (values.Length is >= 64 and <= 65536 && TryProjectedCompact(values, new DecimalComparer(), false)) return;
         if (values.Length >= 64 && values.Length <= 1048576 && TryProjected128(values, new DecimalComparer(), false)) return;
         // Decimal is not a CLR primitive. Keep exact comparisons and avoid
         // virtual comparer dispatch; the original encoding of equal values is preserved.
