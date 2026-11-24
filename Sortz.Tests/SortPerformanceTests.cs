@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using Compress;
+using Sortz;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Compress.Tests;
+namespace Sortz.Tests;
 
 public sealed class SortPerformanceTests(ITestOutputHelper output)
 {

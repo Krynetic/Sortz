@@ -8,7 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
-    <ProjectReference Include="../Compress/Compress.csproj" />
-    <Compile Include="../Compress.Tests/SortInputs.cs" Link="SortInputs.cs" />
+    <ProjectReference Include="../Sortz/Sortz.csproj" />
+    <Compile Include="../Sortz.Tests/SortInputs.cs" Link="SortInputs.cs" />
   </ItemGroup>
 </Project>

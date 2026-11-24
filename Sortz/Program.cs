@@ -1,4 +1,4 @@
-using Compress;
+using Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
 values.SortNext();

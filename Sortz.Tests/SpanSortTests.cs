@@ -1,7 +1,7 @@
-using Compress;
+using Sortz;
 using Xunit;
 
-namespace Compress.Tests;
+namespace Sortz.Tests;
 
 public sealed class SpanSortTests
 {
@@ -20,7 +20,7 @@ public sealed class SpanSortTests
             : null;
 
         Array.Sort(expected, comparer);
-        CompressorNext.Sort(actual.AsSpan(1, size), comparer);
+        SortzNext.Sort(actual.AsSpan(1, size), comparer);
 
         Assert.Equal(expected, actual.AsSpan(1, size).ToArray());
         Assert.Equal(123456, actual[0]);
@@ -31,7 +31,7 @@ public sealed class SpanSortTests
     public void SupportsStackAllocatedSpan()
     {
         Span<int> values = stackalloc int[] { 3, 1, 2, -1, 3 };
-        CompressorNext.Sort(values);
+        SortzNext.Sort(values);
         Assert.Equal(new[] { -1, 1, 2, 3, 3 }, values.ToArray());
     }
 }

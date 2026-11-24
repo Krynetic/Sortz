@@ -1,4 +1,4 @@
-namespace Compress.Tests;
+namespace Sortz.Tests;
 
 internal static class SortInputs
 {

@@ -1,7 +1,7 @@
-using Compress;
+using Sortz;
 using Xunit;
 
-namespace Compress.Tests;
+namespace Sortz.Tests;
 
 public sealed class SortConformanceTests
 {

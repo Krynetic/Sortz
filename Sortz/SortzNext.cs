@@ -1,9 +1,9 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 
-namespace Compress;
+namespace Sortz;
 
-public static class CompressorNext
+public static class SortzNext
 {
     private const int InsertionThreshold = 24;
 

@@ -1,9 +1,9 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
-using Compress.Tests;
+using Sortz.Tests;
 using System.Runtime.InteropServices;
 
-namespace Compress.Benchmarks;
+namespace Sortz.Benchmarks;
 
 public enum InputPattern
 {
@@ -52,5 +52,5 @@ public class SortBenchmarks
     public void BuiltInSpanSort() => CollectionsMarshal.AsSpan(list).Sort();
 
     [Benchmark]
-    public void CompressorNextSort() => CompressorNext.Sort(CollectionsMarshal.AsSpan(list));
+    public void SortzNextSort() => SortzNext.Sort(CollectionsMarshal.AsSpan(list));
 }

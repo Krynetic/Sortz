@@ -9,7 +9,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '11.0.x'
-      - run: dotnet run -c Release --project Compress.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+      - run: dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
       - name: Publish results
         if: always()
         run: |
