@@ -309,6 +309,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
         var bits = MemoryMarshal.Cast<Int128, UInt128>(values);
         UInt128 sign = UInt128.One << 127;
         foreach (ref UInt128 value in bits) value ^= sign;
@@ -320,6 +321,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
         SortRadix128(values);
     }
 
@@ -387,6 +389,112 @@ public static partial class SortzNext
         }
     }
 
+    private static readonly UInt128[] DecimalPowers =
+    [
+        ((UInt128)0UL << 64) | 1UL,
+        ((UInt128)0UL << 64) | 10UL,
+        ((UInt128)0UL << 64) | 100UL,
+        ((UInt128)0UL << 64) | 1000UL,
+        ((UInt128)0UL << 64) | 10000UL,
+        ((UInt128)0UL << 64) | 100000UL,
+        ((UInt128)0UL << 64) | 1000000UL,
+        ((UInt128)0UL << 64) | 10000000UL,
+        ((UInt128)0UL << 64) | 100000000UL,
+        ((UInt128)0UL << 64) | 1000000000UL,
+        ((UInt128)0UL << 64) | 10000000000UL,
+        ((UInt128)0UL << 64) | 100000000000UL,
+        ((UInt128)0UL << 64) | 1000000000000UL,
+        ((UInt128)0UL << 64) | 10000000000000UL,
+        ((UInt128)0UL << 64) | 100000000000000UL,
+        ((UInt128)0UL << 64) | 1000000000000000UL,
+        ((UInt128)0UL << 64) | 10000000000000000UL,
+        ((UInt128)0UL << 64) | 100000000000000000UL,
+        ((UInt128)0UL << 64) | 1000000000000000000UL,
+        ((UInt128)0UL << 64) | 10000000000000000000UL,
+        ((UInt128)5UL << 64) | 7766279631452241920UL,
+        ((UInt128)54UL << 64) | 3875820019684212736UL,
+        ((UInt128)542UL << 64) | 1864712049423024128UL,
+        ((UInt128)5421UL << 64) | 200376420520689664UL,
+        ((UInt128)54210UL << 64) | 2003764205206896640UL,
+        ((UInt128)542101UL << 64) | 1590897978359414784UL,
+        ((UInt128)5421010UL << 64) | 15908979783594147840UL,
+        ((UInt128)54210108UL << 64) | 11515845246265065472UL,
+        ((UInt128)542101086UL << 64) | 4477988020393345024UL,
+        ((UInt128)5421010862UL << 64) | 7886392056514347008UL
+    ];
+
+    // Normalize a decimal coefficient to 29 digits and encode its decimal
+    // exponent. Equal numeric values have the same prefix regardless of scale.
+    private static ulong DecimalPrefix(decimal value, Span<int> parts)
+    {
+        decimal.GetBits(value, parts);
+        ulong low = (uint)parts[0] | ((ulong)(uint)parts[1] << 32);
+        uint high = (uint)parts[2];
+        if ((low | high) == 0) return 0x8000000000000000UL;
+        UInt128 magnitude = ((UInt128)high << 64) | low;
+        int bitLength = high == 0 ? BitOperations.Log2(low) + 1 : BitOperations.Log2(high) + 65;
+        int digits = (bitLength * 1233) >> 12;
+        if (magnitude >= DecimalPowers[digits]) digits++;
+        UInt128 normalized = magnitude * DecimalPowers[29 - digits];
+        int exponent = digits - ((parts[3] >> 16) & 255) + 28;
+        ulong key = 0x8000000000000000UL | ((ulong)exponent << 57) | (ulong)(normalized >> 40);
+        return parts[3] < 0 ? ~key : key;
+    }
+
+    private static bool TryProjected128<T, TComparer>(Span<T> values, TComparer comparer, bool signed)
+        where T : unmanaged where TComparer : IComparer<T>
+    {
+        int length = values.Length;
+        int indexBits = BitOperations.Log2((uint)(length - 1)) + 1;
+        ulong indexMask = (1UL << indexBits) - 1;
+        ulong[]? rentedKeys = null;
+        Span<ulong> keys = length <= 8192 ? stackalloc ulong[length] :
+            (rentedKeys = ArrayPool<ulong>.Shared.Rent(length)).AsSpan(0, length);
+        Span<int> parts = stackalloc int[4];
+        try
+        {
+            ulong first = 0, varying = 0;
+            for (int i = 0; i < length; i++)
+            {
+                ulong prefix;
+                if (typeof(T) == typeof(decimal))
+                    prefix = DecimalPrefix(Unsafe.As<T, decimal>(ref values[i]), parts);
+                else
+                    prefix = (ulong)(Unsafe.As<T, UInt128>(ref values[i]) >> 64) ^
+                        (signed ? 0x8000000000000000UL : 0UL);
+                prefix &= ~indexMask;
+                if (i == 0) first = prefix;
+                varying |= prefix ^ first;
+                keys[i] = prefix | (uint)i;
+            }
+            if (varying == 0) return false;
+            SortUInt64(keys, indexBits / 8);
+
+            T[]? rented = null;
+            Span<T> original = length <= 4096 ? stackalloc T[length] :
+                (rented = ArrayPool<T>.Shared.Rent(length)).AsSpan(0, length);
+            try
+            {
+                values.CopyTo(original);
+                for (int i = 0; i < length; i++)
+                    values[i] = original[(int)(keys[i] & indexMask)];
+                for (int start = 0; start < length;)
+                {
+                    int end = start + 1;
+                    ulong prefix = keys[start] & ~indexMask;
+                    while (end < length && (keys[end] & ~indexMask) == prefix) end++;
+                    int count = end - start;
+                    if (count > 1)
+                        IntroSort(values.Slice(start, count), comparer, 2 * (BitOperations.Log2((uint)count) + 1));
+                    start = end;
+                }
+            }
+            finally { if (rented is not null) ArrayPool<T>.Shared.Return(rented); }
+            return true;
+        }
+        finally { if (rentedKeys is not null) ArrayPool<ulong>.Shared.Return(rentedKeys); }
+    }
+
     private readonly struct DecimalComparer : IComparer<decimal>
     {
         public int Compare(decimal x, decimal y) => decimal.Compare(x, y);
@@ -395,6 +503,7 @@ public static partial class SortzNext
     private static void SortDecimal(Span<decimal> values)
     {
         if (TryOrdered(values, Comparer<decimal>.Default)) return;
+        if (values.Length >= 64 && values.Length <= 1048576 && TryProjected128(values, new DecimalComparer(), false)) return;
         // Decimal is not a CLR primitive. Keep exact comparisons and avoid
         // virtual comparer dispatch; the original encoding of equal values is preserved.
         IntroSort(values, new DecimalComparer(), 2 * (BitOperations.Log2((uint)values.Length) + 1));
