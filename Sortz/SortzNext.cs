@@ -399,7 +399,21 @@ public static class SortzNext
         ref int input = ref MemoryMarshal.GetReference(source);
         ref int output = ref MemoryMarshal.GetReference(target);
         ref ushort offsets = ref MemoryMarshal.GetReference(histogram);
-        for (int i = 0; i < source.Length; i++)
+        int i = 0;
+        for (; i <= source.Length - 4; i += 4)
+        {
+            int a = Unsafe.Add(ref input, i), b = Unsafe.Add(ref input, i + 1);
+            int c = Unsafe.Add(ref input, i + 2), d = Unsafe.Add(ref input, i + 3);
+            int ka = (int)((((uint)a >> shift) & mask) ^ sign);
+            int kb = (int)((((uint)b >> shift) & mask) ^ sign);
+            int kc = (int)((((uint)c >> shift) & mask) ^ sign);
+            int kd = (int)((((uint)d >> shift) & mask) ^ sign);
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, ka)++) = a;
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, kb)++) = b;
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, kc)++) = c;
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, kd)++) = d;
+        }
+        for (; i < source.Length; i++)
         {
             int value = Unsafe.Add(ref input, i);
             int bucket = (int)((((uint)value >> shift) & mask) ^ sign);
@@ -1145,12 +1159,6 @@ public static class SortzNext
         if (bits.Length < 2)
             return;
 
-        if (numbers.Length == 128 && Vector512.IsHardwareAccelerated && !ContainsZero(numbers))
-        {
-            SimdSort.Sort128Double(numbers);
-            return;
-        }
-
         TransformDoubleKeys(bits, false);
         try
         {
@@ -1160,15 +1168,6 @@ public static class SortzNext
         {
             TransformDoubleKeys(bits, true);
         }
-    }
-
-    private static bool ContainsZero(ReadOnlySpan<double> values)
-    {
-        ref double data = ref MemoryMarshal.GetReference(values);
-        for (int i = 0; i < values.Length; i += 8)
-            if (Vector512.EqualsAny(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<double>.Zero))
-                return true;
-        return false;
     }
 
     private static bool ContainsNaN(ReadOnlySpan<double> values)
