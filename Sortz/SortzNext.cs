@@ -661,7 +661,7 @@ public static class SortzNext
             return;
 
         if (count is > 4096 and <= 65535 && Bmi2.X64.IsSupported &&
-            BitConverter.IsLittleEndian && TrySortOrdinal40(values))
+            BitConverter.IsLittleEndian && TrySortOrdinal30(values))
             return;
 
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
@@ -755,18 +755,18 @@ public static class SortzNext
         }
     }
 
-    // Eight UTF-16 code units compressed to a 40-bit monotone prefix.
+    // Six UTF-16 code units compressed to a 30-bit monotone prefix.
     // The range is verified on all elements, and equal keys are resolved ordinally.
-    private static bool TrySortOrdinal40(Span<string?> values)
+    private static bool TrySortOrdinal30(Span<string?> values)
     {
         int count = values.Length;
         int min = char.MaxValue;
         for (int i = 0; i < 8; i++)
         {
             string? value = values[i];
-            if (value is null || value.Length < 8)
+            if (value is null || value.Length < 6)
                 return false;
-            for (int j = 0; j < 8; j++)
+            for (int j = 0; j < 6; j++)
                 min = Math.Min(min, value[j]);
         }
 
@@ -783,19 +783,19 @@ public static class SortzNext
             for (int i = 0; i < count; i++)
             {
                 string? value = values[i];
-                if (value is null || value.Length < 8)
+                if (value is null || value.Length < 6)
                     return false;
                 ref byte first = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
                 ulong a = Unsafe.ReadUnaligned<ulong>(ref first) - repeatedBase;
-                ulong b = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref first, 8)) - repeatedBase;
-                if (((a | b) & ~mask) != 0)
+                ulong b = (ulong)Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref first, 8)) - (repeatedBase & uint.MaxValue);
+                if ((a & ~mask) != 0 || (b & ~(mask & uint.MaxValue)) != 0)
                     return false;
-                ulong prefix = (Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(a), reversedMask) << 20)
-                    | Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(b), reversedMask);
+                ulong prefix = (Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(a), reversedMask) << 10)
+                    | Bmi2.X64.ParallelBitExtract(BinaryPrimitives.ReverseEndianness(b), BinaryPrimitives.ReverseEndianness(mask & uint.MaxValue));
                 keys[i] = (prefix << indexBits) | (uint)i;
             }
 
-            SortPrefix40(keys, indexBits);
+            SortPrefix30(keys, indexBits);
             string?[] references = ArrayPool<string?>.Shared.Rent(count);
             Span<string?> original = references.AsSpan(0, count);
             try
@@ -817,7 +817,7 @@ public static class SortzNext
                 while (end < count && (keys[end] >> indexBits) == prefix)
                     end++;
                 if (end - start > 1)
-                    SortOrdinalBuckets(values[start..end], 8, 32);
+                    SortOrdinalBuckets(values[start..end], 6, 32);
                 start = end;
             }
             return true;
@@ -825,9 +825,9 @@ public static class SortzNext
         finally { ArrayPool<ulong>.Shared.Return(rented); }
     }
 
-    private static void SortPrefix40(Span<ulong> keys, int shift)
+    private static void SortPrefix30(Span<ulong> keys, int shift)
     {
-        Span<int> counts = stackalloc int[4096];
+        Span<int> counts = stackalloc int[3072];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
         ref ulong source = ref MemoryMarshal.GetReference(keys);
@@ -837,13 +837,12 @@ public static class SortzNext
             Unsafe.Add(ref h, (int)(k & 1023))++;
             Unsafe.Add(ref h, 1024 + (int)((k >> 10) & 1023))++;
             Unsafe.Add(ref h, 2048 + (int)((k >> 20) & 1023))++;
-            Unsafe.Add(ref h, 3072 + (int)(k >> 30))++;
         }
         ulong[] rented = ArrayPool<ulong>.Shared.Rent(keys.Length);
         Span<ulong> scratch = rented.AsSpan(0, keys.Length);
         try
         {
-            for (int digit = 0; digit < 4; digit++)
+            for (int digit = 0; digit < 3; digit++)
             {
                 Span<int> histogram = counts.Slice(digit * 1024, 1024);
                 int sum = 0;
@@ -858,6 +857,7 @@ public static class SortzNext
                 else
                     ScatterUInt64Wide(scratch, keys, histogram, shift + digit * 10, 1023);
             }
+            scratch.CopyTo(keys);
         }
         finally { ArrayPool<ulong>.Shared.Return(rented); }
     }
@@ -1288,30 +1288,6 @@ public static class SortzNext
                     Unsafe.Add(ref input, start) = swap ? second : first;
                     Unsafe.Add(ref input, start + 1) = swap ? first : second;
                 }
-                else if (size == 3)
-                {
-                    double a = first, second = Unsafe.Add(ref output, start + 1), d = Unsafe.Add(ref output, start + 2);
-                    ExchangeDouble(ref a, ref second);
-                    ExchangeDouble(ref second, ref d);
-                    ExchangeDouble(ref a, ref second);
-                    Unsafe.Add(ref input, start) = a;
-                    Unsafe.Add(ref input, start + 1) = second;
-                    Unsafe.Add(ref input, start + 2) = d;
-                }
-                else if (size == 4)
-                {
-                    double a = first, second = Unsafe.Add(ref output, start + 1),
-                        d = Unsafe.Add(ref output, start + 2), e = Unsafe.Add(ref output, start + 3);
-                    ExchangeDouble(ref a, ref second);
-                    ExchangeDouble(ref d, ref e);
-                    ExchangeDouble(ref a, ref d);
-                    ExchangeDouble(ref second, ref e);
-                    ExchangeDouble(ref second, ref d);
-                    Unsafe.Add(ref input, start) = a;
-                    Unsafe.Add(ref input, start + 1) = second;
-                    Unsafe.Add(ref input, start + 2) = d;
-                    Unsafe.Add(ref input, start + 3) = e;
-                }
                 else
                 {
                     for (i = start + 1; i < end; i++)
@@ -1334,15 +1310,6 @@ public static class SortzNext
         {
             if (rented is not null) ArrayPool<double>.Shared.Return(rented);
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ExchangeDouble(ref double a, ref double b)
-    {
-        double x = a, y = b;
-        bool swap = x > y;
-        a = swap ? y : x;
-        b = swap ? x : y;
     }
 
     private static void TransformDoubleKeys(Span<ulong> bits, bool inverse)
