@@ -638,15 +638,39 @@ public static partial class SortzNext
             ref int keyData = ref MemoryMarshal.GetReference(keys);
             uint first = 0, varying = 0;
             Span<int> parts = stackalloc int[4];
-            for (int i = 0; i < length; i++)
+            int index = 0;
+            if (typeof(T) != typeof(decimal) && BitConverter.IsLittleEndian && Avx512F.IsSupported)
+            {
+                ref uint words = ref Unsafe.As<T, uint>(ref input);
+                var pick = Vector512.Create(3u, 7u, 11u, 15u, 19u, 23u, 27u, 31u,
+                    3u, 7u, 11u, 15u, 19u, 23u, 27u, 31u);
+                var signMask = Vector256.Create(sign);
+                var prefixMask = Vector256.Create(~indexMask);
+                var offsets = Vector256.Create(0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u);
+                first = (Unsafe.Add(ref words, 3) ^ sign) & ~indexMask;
+                var firstVector = Vector256.Create(first);
+                var differences = Vector256<uint>.Zero;
+                for (; index <= length - 8; index += 8)
+                {
+                    var a = Vector512.LoadUnsafe(ref words, (nuint)index * 4);
+                    var b = Vector512.LoadUnsafe(ref words, (nuint)index * 4 + 16);
+                    var prefixes = (Avx512F.PermuteVar16x32x2(a, pick, b).GetLower() ^ signMask) & prefixMask;
+                    differences |= prefixes ^ firstVector;
+                    (prefixes | (offsets + Vector256.Create((uint)index))).AsInt32()
+                        .StoreUnsafe(ref keyData, (nuint)index);
+                }
+                for (int lane = 0; lane < 8; lane++)
+                    varying |= differences.GetElement(lane);
+            }
+            for (; index < length; index++)
             {
                 uint high = typeof(T) == typeof(decimal)
-                    ? (uint)(DecimalPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, i)), parts) >> 32)
-                    : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, i)) >> 96);
+                    ? (uint)(DecimalPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, index)), parts) >> 32)
+                    : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, index)) >> 96);
                 uint prefix = (high ^ sign) & ~indexMask;
-                if (i == 0) first = prefix;
+                if (index == 0) first = prefix;
                 varying |= prefix ^ first;
-                Unsafe.Add(ref keyData, i) = (int)(prefix | (uint)i);
+                Unsafe.Add(ref keyData, index) = (int)(prefix | (uint)index);
             }
 
             if (BitOperations.PopCount(varying) < 4) return false;
@@ -666,15 +690,26 @@ public static partial class SortzNext
                 for (int i = 0; i < length; i++)
                     Unsafe.Add(ref input, i) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, i) & indexMask));
 
-                for (int start = 0; start < length;)
+                // Most projected keys are distinct. Scan adjacent keys once,
+                // entering collision repair only when their prefixes match.
+                for (int i = 1; i < length; i++)
                 {
-                    int end = start + 1;
+                    if (((uint)(Unsafe.Add(ref keyData, i) ^ Unsafe.Add(ref keyData, i - 1)) & ~indexMask) != 0)
+                        continue;
+                    int start = i - 1;
                     uint prefix = (uint)Unsafe.Add(ref keyData, start) & ~indexMask;
+                    int end = i + 1;
                     while (end < length && ((uint)Unsafe.Add(ref keyData, end) & ~indexMask) == prefix) end++;
                     int count = end - start;
-                    if (count > 1)
+                    if (count == 2)
+                    {
+                        ref T left = ref Unsafe.Add(ref input, start);
+                        ref T right = ref Unsafe.Add(ref input, i);
+                        if (comparer.Compare(left, right) > 0) (left, right) = (right, left);
+                    }
+                    else
                         IntroSort(values.Slice(start, count), comparer, 2 * (BitOperations.Log2((uint)count) + 1));
-                    start = end;
+                    i = end;
                 }
             }
             finally { if (rented is not null) ArrayPool<T>.Shared.Return(rented); }
