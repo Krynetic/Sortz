@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sortz;
 
-public static class SortzNext
+public static partial class SortzNext
 {
     private const int InsertionThreshold = 16;
 
@@ -42,6 +42,10 @@ public static class SortzNext
                 ref Unsafe.As<T, double>(ref MemoryMarshal.GetReference(values)), values.Length));
             return;
         }
+
+        if ((comparer is null || ReferenceEquals(comparer, Comparer<T>.Default)) &&
+            TrySortPrimitive(values))
+            return;
 
         if (typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal))
         {
