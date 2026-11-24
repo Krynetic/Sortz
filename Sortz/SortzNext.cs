@@ -341,6 +341,31 @@ public static partial class SortzNext
             SortInt32Lsd(values);
     }
 
+    // Find the next adjacent equal prefix without visiting each distinct key
+    // individually. The overlapping loads compare sixteen adjacent pairs.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int NextProjectedCollision(ref int keys, int index, int length, uint indexMask)
+    {
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var prefixMask = Vector512.Create(unchecked((int)~indexMask));
+            for (; index <= length - 16; index += 16)
+            {
+                var current = Vector512.LoadUnsafe(ref keys, (nuint)index);
+                var previous = Vector512.LoadUnsafe(ref keys, (nuint)(index - 1));
+                uint matches = (uint)Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals((current ^ previous) & prefixMask, Vector512<int>.Zero));
+                if (matches != 0)
+                    return index + BitOperations.TrailingZeroCount(matches);
+            }
+        }
+
+        for (; index < length; index++)
+            if (((uint)(Unsafe.Add(ref keys, index) ^ Unsafe.Add(ref keys, index - 1)) & ~indexMask) == 0)
+                break;
+        return index;
+    }
+
     // Packed keys contain a source index in their low bits. Only the prefix
     // participates in ordering; callers repair equal-prefix groups exactly.
     private static void SortProjectedInt32(Span<int> keys, int indexBits)
@@ -1320,8 +1345,8 @@ public static partial class SortzNext
 
             for (int next = 1; next < length; next++)
             {
-                if (((uint)(Unsafe.Add(ref key, next) ^ Unsafe.Add(ref key, next - 1)) & ~indexMask) != 0)
-                    continue;
+                next = NextProjectedCollision(ref key, next, length, indexMask);
+                if (next == length) break;
                 int start = next - 1;
                 int end = next + 1;
                 uint prefix = (uint)Unsafe.Add(ref key, start) & ~indexMask;

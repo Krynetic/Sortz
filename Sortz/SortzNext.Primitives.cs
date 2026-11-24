@@ -719,8 +719,8 @@ public static partial class SortzNext
                 // entering collision repair only when their prefixes match.
                 for (int i = 1; i < length; i++)
                 {
-                    if (((uint)(Unsafe.Add(ref keyData, i) ^ Unsafe.Add(ref keyData, i - 1)) & ~indexMask) != 0)
-                        continue;
+                    i = NextProjectedCollision(ref keyData, i, length, indexMask);
+                    if (i == length) break;
                     int start = i - 1;
                     uint prefix = (uint)Unsafe.Add(ref keyData, start) & ~indexMask;
                     int end = i + 1;
