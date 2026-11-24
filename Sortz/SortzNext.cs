@@ -98,7 +98,7 @@ public static class SortzNext
     // Bind the pivot/key interface once, then reuse it for the entire scan.
     private static void SortComparableReference<T>(Span<T> values, int depth)
     {
-        while (values.Length > 16)
+        while (values.Length > 24)
         {
             if (depth-- == 0)
             {
@@ -108,6 +108,18 @@ public static class SortzNext
 
             ref T data = ref MemoryMarshal.GetReference(values);
             int last = values.Length - 1, middle = last >> 1;
+            if (values.Length >= 256)
+            {
+                // Move a median-of-three of three sampled groups into the pivot slot.
+                int step = last / 8;
+                int x = MedianIndex(ref data, 0, step, step * 2);
+                int y = MedianIndex(ref data, step * 3, middle, step * 5);
+                int z = MedianIndex(ref data, step * 6, step * 7, last);
+                int pivotIndex = MedianIndex(ref data, x, y, z);
+                ref T samplePivot = ref Unsafe.Add(ref data, pivotIndex);
+                ref T middleSlot = ref Unsafe.Add(ref data, middle);
+                (samplePivot, middleSlot) = (middleSlot, samplePivot);
+            }
             T a = data, b = Unsafe.Add(ref data, middle), c = Unsafe.Add(ref data, last);
             if (((IComparable<T>)a!).CompareTo(b) > 0) (a, b) = (b, a);
             if (((IComparable<T>)a!).CompareTo(c) > 0) (a, c) = (c, a);
@@ -158,14 +170,34 @@ public static class SortzNext
         {
             T key = Unsafe.Add(ref input, i);
             var comparable = (IComparable<T>)key!;
-            int j = i;
-            while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0)
+            if (comparable.CompareTo(Unsafe.Add(ref input, i - 1)) >= 0)
+                continue;
+
+            int lo = 0, hi = i - 1;
+            while (lo < hi)
             {
-                Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
-                j--;
+                int mid = (lo + hi) >> 1;
+                if (comparable.CompareTo(Unsafe.Add(ref input, mid)) < 0)
+                    hi = mid;
+                else
+                    lo = mid + 1;
             }
-            Unsafe.Add(ref input, j) = key;
+            for (int j = i; j > lo; j--)
+                Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
+            Unsafe.Add(ref input, lo) = key;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int MedianIndex<T>(ref T data, int a, int b, int c)
+    {
+        if (((IComparable<T>)Unsafe.Add(ref data, a)!).CompareTo(Unsafe.Add(ref data, b)) > 0)
+            (a, b) = (b, a);
+        if (((IComparable<T>)Unsafe.Add(ref data, b)!).CompareTo(Unsafe.Add(ref data, c)) > 0)
+            (b, c) = (c, b);
+        if (((IComparable<T>)Unsafe.Add(ref data, a)!).CompareTo(Unsafe.Add(ref data, b)) > 0)
+            b = a;
+        return b;
     }
 
     private static int PartitionComparableBlocks<T>(ref T data, int right, IComparable<T> pivot)
