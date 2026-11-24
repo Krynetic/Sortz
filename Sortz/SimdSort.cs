@@ -2,7 +2,6 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 
 namespace Sortz;
 
@@ -227,36 +226,34 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<int> SortVectorInt32(Vector512<int> v)
     {
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xb1) : Vector512.Shuffle(v, ShuffleInt321), MaskInt322_1);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4e) : Vector512.Shuffle(v, ShuffleInt322), MaskInt324_2);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xb1) : Vector512.Shuffle(v, ShuffleInt321), MaskInt324_1);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xb1) : Vector512.Shuffle(v, ShuffleInt324), MaskInt328_4);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4e) : Vector512.Shuffle(v, ShuffleInt322), MaskInt328_2);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xb1) : Vector512.Shuffle(v, ShuffleInt321), MaskInt328_1);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4e) : Vector512.Shuffle(v, ShuffleInt328), MaskInt3216_8);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xb1) : Vector512.Shuffle(v, ShuffleInt324), MaskInt3216_4);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4e) : Vector512.Shuffle(v, ShuffleInt322), MaskInt3216_2);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xb1) : Vector512.Shuffle(v, ShuffleInt321), MaskInt3216_1);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt322_1);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt324_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt324_1);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt328_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt328_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt328_1);
+        v = ExchangeInt32(v, ShuffleInt328, MaskInt3216_8);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt3216_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt3216_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt3216_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<int> MergeVectorInt32(Vector512<int> v)
     {
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4e) : Vector512.Shuffle(v, ShuffleInt328), MaskInt3216_8);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xb1) : Vector512.Shuffle(v, ShuffleInt324), MaskInt3216_4);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4e) : Vector512.Shuffle(v, ShuffleInt322), MaskInt3216_2);
-        v = ExchangeInt32(v, Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xb1) : Vector512.Shuffle(v, ShuffleInt321), MaskInt3216_1);
+        v = ExchangeInt32(v, ShuffleInt328, MaskInt3216_8);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt3216_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt3216_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt3216_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<int> ExchangeInt32(Vector512<int> v, Vector512<int> other, Vector512<int> mask)
+    private static Vector512<int> ExchangeInt32(Vector512<int> v, Vector512<int> shuffle, Vector512<int> mask)
     {
-        var lo = Vector512.Min(v, other);
-        var hi = Vector512.Max(v, other);
-        return Avx512F.IsSupported ? Avx512F.BlendVariable(hi, lo, mask) :
-            Vector512.ConditionalSelect(mask, lo, hi);
+        var other = Vector512.Shuffle(v, shuffle);
+        return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
     }
 
     private static readonly Vector512<ulong> ShuffleUInt641 = Vector512.Create(1UL, 0UL, 3UL, 2UL, 5UL, 4UL, 7UL, 6UL);
@@ -717,31 +714,29 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ulong> SortVectorUInt64(Vector512<ulong> v)
     {
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0xb1) : Vector512.Shuffle(v, ShuffleUInt641), MaskUInt642_1);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0x4e) : Vector512.Shuffle(v, ShuffleUInt642), MaskUInt644_2);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0xb1) : Vector512.Shuffle(v, ShuffleUInt641), MaskUInt644_1);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4e) : Vector512.Shuffle(v, ShuffleUInt644), MaskUInt648_4);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0x4e) : Vector512.Shuffle(v, ShuffleUInt642), MaskUInt648_2);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0xb1) : Vector512.Shuffle(v, ShuffleUInt641), MaskUInt648_1);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt642_1);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt644_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt644_1);
+        v = ExchangeUInt64(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt648_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ulong> MergeVectorUInt64(Vector512<ulong> v)
     {
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4e) : Vector512.Shuffle(v, ShuffleUInt644), MaskUInt648_4);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0x4e) : Vector512.Shuffle(v, ShuffleUInt642), MaskUInt648_2);
-        v = ExchangeUInt64(v, Avx512F.IsSupported ? Avx512F.Permute4x64(v, 0xb1) : Vector512.Shuffle(v, ShuffleUInt641), MaskUInt648_1);
+        v = ExchangeUInt64(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt648_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ulong> ExchangeUInt64(Vector512<ulong> v, Vector512<ulong> other, Vector512<ulong> mask)
+    private static Vector512<ulong> ExchangeUInt64(Vector512<ulong> v, Vector512<ulong> shuffle, Vector512<ulong> mask)
     {
-        var lo = Vector512.Min(v, other);
-        var hi = Vector512.Max(v, other);
-        return Avx512F.IsSupported ? Avx512F.BlendVariable(hi, lo, mask) :
-            Vector512.ConditionalSelect(mask, lo, hi);
+        var other = Vector512.Shuffle(v, shuffle);
+        return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
     }
 
 }
