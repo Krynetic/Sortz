@@ -72,12 +72,98 @@ public static class SortzNext
 
         if (!typeof(T).IsValueType && ReferenceEquals(comparer, Comparer<T>.Default))
         {
-            SortReference(values, Comparer<T>.Default,
-                2 * (BitOperations.Log2((uint)values.Length) + 1));
+            if (values.Length >= 128)
+                SortSampledReferences(values, Comparer<T>.Default);
+            else
+                SortReference(values, Comparer<T>.Default,
+                    2 * (BitOperations.Log2((uint)values.Length) + 1));
             return;
         }
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
+    }
+
+    [InlineArray(15)]
+    private struct ReferenceSample<T>
+    {
+        private T element;
+    }
+
+    private static void SortSampledReferences<T>(Span<T> values, Comparer<T> comparer)
+    {
+        T[] rented = ArrayPool<T>.Shared.Rent(values.Length);
+        byte[]? rentedTags = null;
+        Span<byte> tags = values.Length <= 16384 ? stackalloc byte[values.Length] :
+            (rentedTags = ArrayPool<byte>.Shared.Rent(values.Length)).AsSpan(0, values.Length);
+        try
+        {
+            SamplePartition(values, rented.AsSpan(0, values.Length), tags, comparer, false,
+                BitOperations.Log2((uint)values.Length));
+        }
+        finally
+        {
+            ArrayPool<T>.Shared.Return(rented, clearArray: true);
+            if (rentedTags is not null) ArrayPool<byte>.Shared.Return(rentedTags);
+        }
+    }
+
+    private static void SamplePartition<T>(Span<T> source, Span<T> target, Span<byte> tags,
+        Comparer<T> comparer, bool outputInTarget, int depth)
+    {
+        if (source.Length <= 64 || depth == 0)
+        {
+            if (source.Length > 1)
+                SortReference(source, comparer, 2 * (BitOperations.Log2((uint)source.Length) + 1));
+            if (outputInTarget) source.CopyTo(target);
+            return;
+        }
+
+        ReferenceSample<T> buffer = default;
+        Span<T> sample = buffer;
+        for (int i = 0; i < 15; i++)
+            sample[i] = source[(int)((long)(i + 1) * source.Length / 16)];
+        InsertionSort(sample, comparer);
+        T a = sample[3], b = sample[7], c = sample[11];
+        ref T input = ref MemoryMarshal.GetReference(source);
+        ref byte tag = ref MemoryMarshal.GetReference(tags);
+        int n0 = 0, n1 = 0, n2 = 0;
+        for (int i = 0; i < source.Length; i++)
+        {
+            T value = Unsafe.Add(ref input, i);
+            byte bucket;
+            if (comparer.Compare(value, b) < 0)
+            {
+                if (comparer.Compare(value, a) < 0) { bucket = 0; n0++; }
+                else { bucket = 1; n1++; }
+            }
+            else if (comparer.Compare(value, c) < 0) { bucket = 2; n2++; }
+            else bucket = 3;
+            Unsafe.Add(ref tag, i) = bucket;
+        }
+
+        int n3 = source.Length - n0 - n1 - n2;
+        if (Math.Max(Math.Max(n0, n1), Math.Max(n2, n3)) > source.Length - source.Length / 8)
+        {
+            SortReference(source, comparer, 2 * (BitOperations.Log2((uint)source.Length) + 1));
+            if (outputInTarget) source.CopyTo(target);
+            return;
+        }
+
+        Span<int> offsets = stackalloc int[] { 0, n0, n0 + n1, n0 + n1 + n2 };
+        ref int index = ref MemoryMarshal.GetReference(offsets);
+        ref T output = ref MemoryMarshal.GetReference(target);
+        for (int i = 0; i < source.Length; i++)
+            Unsafe.Add(ref output, Unsafe.Add(ref index, Unsafe.Add(ref tag, i))++) = Unsafe.Add(ref input, i);
+
+        int start = 0;
+        for (int k = 0; k < 4; k++)
+        {
+            int length = offsets[k] - start;
+            if (length != 0)
+                SamplePartition(target.Slice(start, length), source.Slice(start, length),
+                    tags.Slice(start, length), comparer, !outputInTarget, depth - 1);
+            start = offsets[k];
+        }
     }
 
     private static void SortReference<T>(Span<T> values, Comparer<T> comparer, int depth)
