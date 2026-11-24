@@ -72,12 +72,93 @@ public static class SortzNext
 
         if (!typeof(T).IsValueType && ReferenceEquals(comparer, Comparer<T>.Default))
         {
-            SortReference(values, Comparer<T>.Default,
-                2 * (BitOperations.Log2((uint)values.Length) + 1));
+            int depth = 2 * (BitOperations.Log2((uint)values.Length) + 1);
+            if (ReferenceTraits<T>.Comparable)
+            {
+                int first = 0;
+                for (int i = 0; i < values.Length; i++)
+                    if (values[i] is null)
+                        Swap(values, first++, i);
+                SortComparableReference(values[first..], depth);
+            }
+            else
+                SortReference(values, Comparer<T>.Default, depth);
             return;
         }
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
+    }
+
+    private static class ReferenceTraits<T>
+    {
+        internal static readonly bool Comparable = typeof(IComparable<T>).IsAssignableFrom(typeof(T));
+    }
+
+    // All values are non-null, and the caller has established IComparable<T>.
+    // Bind the pivot/key interface once, then reuse it for the entire scan.
+    private static void SortComparableReference<T>(Span<T> values, int depth)
+    {
+        while (values.Length > 16)
+        {
+            if (depth-- == 0)
+            {
+                HeapSort(values, Comparer<T>.Default);
+                return;
+            }
+
+            ref T data = ref MemoryMarshal.GetReference(values);
+            int last = values.Length - 1, middle = last >> 1;
+            T a = data, b = Unsafe.Add(ref data, middle), c = Unsafe.Add(ref data, last);
+            if (((IComparable<T>)a!).CompareTo(b) > 0) (a, b) = (b, a);
+            if (((IComparable<T>)a!).CompareTo(c) > 0) (a, c) = (c, a);
+            if (((IComparable<T>)b!).CompareTo(c) > 0) (b, c) = (c, b);
+            data = a;
+            Unsafe.Add(ref data, middle) = Unsafe.Add(ref data, last - 1);
+            Unsafe.Add(ref data, last - 1) = b;
+            Unsafe.Add(ref data, last) = c;
+
+            var pivot = (IComparable<T>)b!;
+            int left = 0, right = last - 1;
+            while (true)
+            {
+                do { left++; } while (left < last - 1 &&
+                    pivot.CompareTo(Unsafe.Add(ref data, left)) > 0);
+                do { right--; } while (right > 0 &&
+                    pivot.CompareTo(Unsafe.Add(ref data, right)) < 0);
+                if (left >= right) break;
+                ref T l = ref Unsafe.Add(ref data, left);
+                ref T r = ref Unsafe.Add(ref data, right);
+                (l, r) = (r, l);
+            }
+
+            Unsafe.Add(ref data, last - 1) = Unsafe.Add(ref data, left);
+            Unsafe.Add(ref data, left) = b;
+            Span<T> lower = values[..left], upper = values[(left + 1)..];
+            if (lower.Length < upper.Length)
+            {
+                SortComparableReference(lower, depth);
+                values = upper;
+            }
+            else
+            {
+                SortComparableReference(upper, depth);
+                values = lower;
+            }
+        }
+
+        ref T input = ref MemoryMarshal.GetReference(values);
+        for (int i = 1; i < values.Length; i++)
+        {
+            T key = Unsafe.Add(ref input, i);
+            var comparable = (IComparable<T>)key!;
+            int j = i;
+            while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0)
+            {
+                Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
+                j--;
+            }
+            Unsafe.Add(ref input, j) = key;
+        }
     }
 
     private static void SortReference<T>(Span<T> values, Comparer<T> comparer, int depth)
@@ -183,117 +264,10 @@ public static class SortzNext
             return;
         }
 
-        if (count >= 512 && count <= 16384 && TrySortFusedBuckets(values))
-            return;
-
         if (count >= 4096)
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
-    }
-
-    // Scatter by high bits and finish each bucket directly into the destination.
-    // Tiny buckets use branchless compare-exchange kernels instead of recursion.
-    private static bool TrySortFusedBuckets(Span<int> values)
-    {
-        int count = values.Length;
-        int width = Math.Clamp(BitOperations.Log2((uint)count) - 2, 6, 11);
-        int buckets = 1 << width;
-        int shift = 32 - width;
-        Span<int> ends = stackalloc int[buckets];
-        ends.Clear();
-        ref int offsets = ref MemoryMarshal.GetReference(ends);
-        ref int source = ref MemoryMarshal.GetReference(values);
-        for (int i = 0; i < count; i++)
-        {
-            int bucket = (int)(((uint)Unsafe.Add(ref source, i) ^ 0x8000_0000u) >> shift);
-            if (++Unsafe.Add(ref offsets, bucket) > 64)
-                return false;
-        }
-
-        int sum = 0;
-        for (int b = 0; b < buckets; b++)
-        {
-            int size = Unsafe.Add(ref offsets, b);
-            Unsafe.Add(ref offsets, b) = sum;
-            sum += size;
-        }
-
-        Span<int> scratch = stackalloc int[count];
-        ref int data = ref MemoryMarshal.GetReference(scratch);
-        for (int i = 0; i < count; i++)
-        {
-            int x = Unsafe.Add(ref source, i);
-            int bucket = (int)(((uint)x ^ 0x8000_0000u) >> shift);
-            Unsafe.Add(ref data, Unsafe.Add(ref offsets, bucket)++) = x;
-        }
-
-        int start = 0;
-        for (int b = 0; b < buckets; b++)
-        {
-            int end = Unsafe.Add(ref offsets, b);
-            int size = end - start;
-            if (size == 0) continue;
-            ref int input = ref Unsafe.Add(ref data, start);
-            ref int output = ref Unsafe.Add(ref source, start);
-            if (size == 1)
-                output = input;
-            else if (size == 2)
-            {
-                int a = input, z = Unsafe.Add(ref input, 1);
-                output = Math.Min(a, z);
-                Unsafe.Add(ref output, 1) = Math.Max(a, z);
-            }
-            else if (size == 3)
-            {
-                int a = input, z = Unsafe.Add(ref input, 1), d = Unsafe.Add(ref input, 2);
-                CompareExchange(ref a, ref z);
-                CompareExchange(ref z, ref d);
-                CompareExchange(ref a, ref z);
-                output = a;
-                Unsafe.Add(ref output, 1) = z;
-                Unsafe.Add(ref output, 2) = d;
-            }
-            else if (size == 4)
-            {
-                int a = input, z = Unsafe.Add(ref input, 1),
-                    d = Unsafe.Add(ref input, 2), e = Unsafe.Add(ref input, 3);
-                CompareExchange(ref a, ref z);
-                CompareExchange(ref d, ref e);
-                CompareExchange(ref a, ref d);
-                CompareExchange(ref z, ref e);
-                CompareExchange(ref z, ref d);
-                output = a;
-                Unsafe.Add(ref output, 1) = z;
-                Unsafe.Add(ref output, 2) = d;
-                Unsafe.Add(ref output, 3) = e;
-            }
-            else
-            {
-                output = input;
-                for (int i = 1; i < size; i++)
-                {
-                    int x = Unsafe.Add(ref input, i);
-                    int j = i;
-                    while (j > 0 && Unsafe.Add(ref output, j - 1) > x)
-                    {
-                        Unsafe.Add(ref output, j) = Unsafe.Add(ref output, j - 1);
-                        j--;
-                    }
-                    Unsafe.Add(ref output, j) = x;
-                }
-            }
-            start = end;
-        }
-        return true;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void CompareExchange(ref int a, ref int b)
-    {
-        int x = a, y = b;
-        a = Math.Min(x, y);
-        b = Math.Max(x, y);
     }
 
     private static void SortInt32Wide(Span<int> values)
