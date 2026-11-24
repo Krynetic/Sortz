@@ -1,5 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Jobs;
 using Sortz.Tests;
 using System.Runtime.InteropServices;
 
@@ -12,7 +11,7 @@ public enum InputPattern
 }
 
 [MemoryDiagnoser]
-[SimpleJob]
+[Config(typeof(SortBenchmarkConfig))]
 public class SortBenchmarks
 {
     [Params(128, 1024, 10000, 100000, 1000000)]
