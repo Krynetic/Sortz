@@ -1,5 +1,5 @@
 name: Sorting benchmarks
-on: [push, pull_request]
+on: [push]
 jobs:
   benchmark:
     runs-on: self-hosted
