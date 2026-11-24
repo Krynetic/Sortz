@@ -678,20 +678,9 @@ internal static class SimdSort
     {
         ref ulong data = ref MemoryMarshal.GetReference(values);
         const int lanes = 8;
-        int initialWidth;
-        if (values.Length >= 128)
-        {
-            for (int i = 0; i < values.Length; i += 128)
-                Sort128UInt64(values.Slice(i, 128));
-            initialWidth = 256;
-        }
-        else
-        {
-            for (int i = 0; i < values.Length; i += lanes)
-                SortVectorUInt64(Vector512.LoadUnsafe(ref data, (nuint)i)).StoreUnsafe(ref data, (nuint)i);
-            initialWidth = lanes * 2;
-        }
-        for (int width = initialWidth; width <= values.Length; width *= 2)
+        for (int i = 0; i < values.Length; i += lanes)
+            SortVectorUInt64(Vector512.LoadUnsafe(ref data, (nuint)i)).StoreUnsafe(ref data, (nuint)i);
+        for (int width = lanes * 2; width <= values.Length; width *= 2)
         {
             int half = width / 2;
             for (int start = 0; start < values.Length; start += width)

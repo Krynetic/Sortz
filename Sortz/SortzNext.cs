@@ -1288,6 +1288,30 @@ public static class SortzNext
                     Unsafe.Add(ref input, start) = swap ? second : first;
                     Unsafe.Add(ref input, start + 1) = swap ? first : second;
                 }
+                else if (size == 3)
+                {
+                    double a = first, b = Unsafe.Add(ref output, start + 1), d = Unsafe.Add(ref output, start + 2);
+                    ExchangeDouble(ref a, ref b);
+                    ExchangeDouble(ref b, ref d);
+                    ExchangeDouble(ref a, ref b);
+                    Unsafe.Add(ref input, start) = a;
+                    Unsafe.Add(ref input, start + 1) = b;
+                    Unsafe.Add(ref input, start + 2) = d;
+                }
+                else if (size == 4)
+                {
+                    double a = first, b = Unsafe.Add(ref output, start + 1),
+                        d = Unsafe.Add(ref output, start + 2), e = Unsafe.Add(ref output, start + 3);
+                    ExchangeDouble(ref a, ref b);
+                    ExchangeDouble(ref d, ref e);
+                    ExchangeDouble(ref a, ref d);
+                    ExchangeDouble(ref b, ref e);
+                    ExchangeDouble(ref b, ref d);
+                    Unsafe.Add(ref input, start) = a;
+                    Unsafe.Add(ref input, start + 1) = b;
+                    Unsafe.Add(ref input, start + 2) = d;
+                    Unsafe.Add(ref input, start + 3) = e;
+                }
                 else
                 {
                     for (i = start + 1; i < end; i++)
@@ -1310,6 +1334,15 @@ public static class SortzNext
         {
             if (rented is not null) ArrayPool<double>.Shared.Return(rented);
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ExchangeDouble(ref double a, ref double b)
+    {
+        double x = a, y = b;
+        bool swap = x > y;
+        a = swap ? y : x;
+        b = swap ? x : y;
     }
 
     private static void TransformDoubleKeys(Span<ulong> bits, bool inverse)
