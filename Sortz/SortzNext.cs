@@ -520,9 +520,6 @@ public static class SortzNext
             TrySortOrdinal32(values))
             return;
 
-        if (count is > 4096 and <= 32768 && TrySortOrdinalAlphabet(values))
-            return;
-
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
         ulong indexMask = (1UL << indexBits) - 1;
         int units = (64 - indexBits) / 8;
@@ -611,93 +608,6 @@ public static class SortzNext
         {
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
-        }
-    }
-
-    // Discover the actual ordered alphabet, then use its ranks as four-bit
-    // symbols. Full ordinal comparison resolves every truncated-prefix tie.
-    private static bool TrySortOrdinalAlphabet(Span<string?> values)
-    {
-        int count = values.Length;
-        ulong low = 0, high = 0;
-        foreach (string? value in values)
-        {
-            if (value is null || value.Length < 4)
-                return false;
-            for (int j = 0; j < 4; j++)
-            {
-                uint ch = value[j];
-                if (ch >= 128) return false;
-                if (ch < 64) low |= 1UL << (int)ch;
-                else high |= 1UL << (int)ch;
-            }
-            if (BitOperations.PopCount(low) + BitOperations.PopCount(high) > 16)
-                return false;
-        }
-
-        Span<byte> rank = stackalloc byte[128];
-        int next = 0;
-        while (low != 0)
-        {
-            int bit = BitOperations.TrailingZeroCount(low);
-            rank[bit] = (byte)next++;
-            low &= low - 1;
-        }
-        while (high != 0)
-        {
-            int bit = BitOperations.TrailingZeroCount(high);
-            rank[64 + bit] = (byte)next++;
-            high &= high - 1;
-        }
-
-        int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
-        uint indexMask = (1u << indexBits) - 1;
-        int[] rentedKeys = ArrayPool<int>.Shared.Rent(count);
-        Span<int> keys = rentedKeys.AsSpan(0, count);
-        try
-        {
-            ref byte table = ref MemoryMarshal.GetReference(rank);
-            for (int i = 0; i < count; i++)
-            {
-                string value = values[i]!;
-                uint prefix = ((uint)Unsafe.Add(ref table, value[0]) << 12) |
-                    ((uint)Unsafe.Add(ref table, value[1]) << 8) |
-                    ((uint)Unsafe.Add(ref table, value[2]) << 4) |
-                    Unsafe.Add(ref table, value[3]);
-                keys[i] = (int)((prefix << indexBits) | (uint)i);
-            }
-
-            SortInt32(keys);
-            string?[] rented = ArrayPool<string?>.Shared.Rent(count);
-            Span<string?> original = rented.AsSpan(0, count);
-            try
-            {
-                values.CopyTo(original);
-                for (int i = 0; i < count; i++)
-                    values[i] = original[(int)((uint)keys[i] & indexMask)];
-            }
-            finally
-            {
-                original.Clear();
-                ArrayPool<string?>.Shared.Return(rented);
-            }
-
-            for (int start = 0; start < count;)
-            {
-                uint prefix = (uint)keys[start] >> indexBits;
-                int end = start + 1;
-                while (end < count && ((uint)keys[end] >> indexBits) == prefix)
-                    end++;
-                if (end - start > 1)
-                    SortOrdinalBuckets(values[start..end], 4, 32);
-                start = end;
-            }
-
-            return true;
-        }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(rentedKeys);
         }
     }
 
@@ -897,9 +807,10 @@ public static class SortzNext
 
         // NaNs sort first under Double.CompareTo. Keep every original payload.
         int nanCount = 0;
-        for (int i = 0; i < values.Length; i++)
-            if (double.IsNaN(values[i]))
-                Swap(values, nanCount++, i);
+        if (ContainsNaN(values))
+            for (int i = 0; i < values.Length; i++)
+                if (double.IsNaN(values[i]))
+                    Swap(values, nanCount++, i);
 
         Span<double> numbers = values[nanCount..];
         if (numbers.Length is >= 512 and < 4096 && TrySortProjected(numbers))
@@ -918,6 +829,26 @@ public static class SortzNext
         {
             TransformDoubleKeys(bits, true);
         }
+    }
+
+    private static bool ContainsNaN(ReadOnlySpan<double> values)
+    {
+        ref double data = ref MemoryMarshal.GetReference(values);
+        int i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var magnitude = Vector512.Create(0x7fff_ffff_ffff_ffffUL);
+            var infinity = Vector512.Create(0x7ff0_0000_0000_0000UL);
+            for (; i <= values.Length - 8; i += 8)
+            {
+                var bits = Vector512.LoadUnsafe(ref data, (nuint)i).AsUInt64();
+                if (Vector512.GreaterThanAny(bits & magnitude, infinity))
+                    return true;
+            }
+        }
+        for (; i < values.Length; i++)
+            if (double.IsNaN(Unsafe.Add(ref data, i))) return true;
+        return false;
     }
 
     // Monotone numeric projection: a single scatter produces ordered buckets.
