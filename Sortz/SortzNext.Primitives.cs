@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Sortz;
 
@@ -72,6 +73,15 @@ public static partial class SortzNext
             return;
         }
 
+        if (Avx512BW.IsSupported && values.Length <= 256)
+        {
+            Span<ushort> keys = stackalloc ushort[values.Length];
+            for (int i = 0; i < values.Length; i++) keys[i] = (ushort)(values[i] ^ sign);
+            PrimitiveSimdSort.SortUInt16(keys);
+            for (int i = 0; i < values.Length; i++) values[i] = (byte)(keys[i] ^ sign);
+            return;
+        }
+
         Span<int> counts = stackalloc int[256];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
@@ -103,6 +113,11 @@ public static partial class SortzNext
         if (TryOrderedInteger(values)) return;
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
+        if (Avx512BW.IsSupported && length <= 1024)
+        {
+            PrimitiveSimdSort.SortUInt16(values);
+            return;
+        }
         if (Vector512.IsHardwareAccelerated && length <= 1024)
         {
             Span<int> widened = stackalloc int[length];
