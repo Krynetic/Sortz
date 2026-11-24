@@ -516,7 +516,7 @@ public static class SortzNext
             return;
         }
 
-        if (count <= 4096 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
+        if (count <= 32768 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
             TrySortOrdinal32(values))
             return;
 
@@ -617,7 +617,8 @@ public static class SortzNext
     {
         int count = values.Length;
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
-        int width = (31 - indexBits) / 4;
+        int units = count <= 4096 ? 4 : 3;
+        int width = (31 - indexBits) / units;
         if (width < 4)
             return false;
 
@@ -627,17 +628,23 @@ public static class SortzNext
             string? value = values[i];
             if (value is null || value.Length < 4)
                 return false;
-            for (int j = 0; j < 4; j++)
+            for (int j = 0; j < units; j++)
                 min = Math.Min(min, value[j]);
         }
 
         uint symbolMask = (1u << width) - 1;
         ulong baseValue = (ulong)(min & ~(int)(symbolMask >> 1));
-        ulong repeatedBase = baseValue * 0x0001000100010001UL;
-        ulong mask = (ulong)symbolMask * 0x0001000100010001UL;
+        ulong lanes = units == 4 ? 0x0001000100010001UL : 0x0000000100010001UL;
+        ulong repeatedBase = baseValue * lanes;
+        ulong mask = (ulong)symbolMask * lanes;
+        ulong inputMask = units == 4 ? ulong.MaxValue : 0x0000ffffffffffffUL;
         ulong reversedMask = BinaryPrimitives.ReverseEndianness(mask);
         uint indexMask = (1u << indexBits) - 1;
-        Span<int> keys = stackalloc int[count];
+        int[]? rentedKeys = null;
+        Span<int> keys = count <= 8192 ? stackalloc int[count] :
+            (rentedKeys = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+        try
+        {
 
         for (int i = 0; i < count; i++)
         {
@@ -645,7 +652,7 @@ public static class SortzNext
             if (value is null || value.Length < 4)
                 return false;
             ref byte data = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
-            ulong adjusted = Unsafe.ReadUnaligned<ulong>(ref data) - repeatedBase;
+            ulong adjusted = (Unsafe.ReadUnaligned<ulong>(ref data) & inputMask) - repeatedBase;
             if ((adjusted & ~mask) != 0)
                 return false;
             ulong prefix = Bmi2.X64.ParallelBitExtract(
@@ -653,7 +660,8 @@ public static class SortzNext
             keys[i] = (int)((prefix << indexBits) | (uint)i);
         }
 
-        SortInt32(keys);
+        if (count <= 256) SortInt32(keys);
+        else SortPrefix32(keys, indexBits, units * width);
 
         string?[] rented = ArrayPool<string?>.Shared.Rent(count);
         Span<string?> original = rented.AsSpan(0, count);
@@ -676,11 +684,60 @@ public static class SortzNext
             while (end < count && ((uint)keys[end] >> indexBits) == prefix)
                 end++;
             if (end - start > 1)
-                SortOrdinalBuckets(values[start..end], 4, 32);
+                SortOrdinalBuckets(values[start..end], units, 32);
             start = end;
         }
 
         return true;
+        }
+        finally
+        {
+            if (rentedKeys is not null) ArrayPool<int>.Shared.Return(rentedKeys);
+        }
+    }
+
+    private static void SortPrefix32(Span<int> keys, int shift, int bits)
+    {
+        int lowBits = bits / 2, highBits = bits - lowBits;
+        int loCount = 1 << lowBits, hiCount = 1 << highBits;
+        Span<int> counts = stackalloc int[loCount + hiCount];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref int src = ref MemoryMarshal.GetReference(keys);
+        uint mask = (uint)(loCount - 1);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            uint k = (uint)Unsafe.Add(ref src, i) >> shift;
+            Unsafe.Add(ref h, (int)(k & mask))++;
+            Unsafe.Add(ref h, loCount + (int)(k >> lowBits))++;
+        }
+        Span<int> lo = counts[..loCount], hi = counts[loCount..];
+        for (int i = 0, sum = 0; i < lo.Length; i++)
+        {
+            int n = lo[i]; lo[i] = sum; sum += n;
+        }
+        for (int i = 0, sum = 0; i < hi.Length; i++)
+        {
+            int n = hi[i]; hi[i] = sum; sum += n;
+        }
+        int[]? rented = null;
+        Span<int> scratch = keys.Length <= 8192 ? stackalloc int[keys.Length] :
+            (rented = ArrayPool<int>.Shared.Rent(keys.Length)).AsSpan(0, keys.Length);
+        try
+        {
+            ref int dst = ref MemoryMarshal.GetReference(scratch);
+            for (int i = 0; i < keys.Length; i++)
+            {
+                int k = Unsafe.Add(ref src, i);
+                Unsafe.Add(ref dst, Unsafe.Add(ref h, (int)(((uint)k >> shift) & mask))++) = k;
+            }
+            for (int i = 0; i < keys.Length; i++)
+            {
+                int k = Unsafe.Add(ref dst, i);
+                Unsafe.Add(ref src, Unsafe.Add(ref h, loCount + (int)((uint)k >> (shift + lowBits)))++) = k;
+            }
+        }
+        finally { if (rented is not null) ArrayPool<int>.Shared.Return(rented); }
     }
 
     // In-place MSD bucket distribution for Latin-1 code units, with a
@@ -819,12 +876,6 @@ public static class SortzNext
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
         if (bits.Length < 2)
             return;
-
-        if (Vector512.IsHardwareAccelerated && bits.Length == 128)
-        {
-            SimdSort.Sort128DoubleBits(bits);
-            return;
-        }
 
         TransformDoubleKeys(bits, false);
         try
