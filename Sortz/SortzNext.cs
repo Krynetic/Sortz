@@ -1142,7 +1142,8 @@ public static partial class SortzNext
 
         Span<double> numbers = values[nanCount..];
         if (numbers.Length is >= 512 and <= 16384 &&
-            (!Vector512.IsHardwareAccelerated || numbers.Length > 1024) && TrySortProjected(numbers))
+            (!Vector512.IsHardwareAccelerated || numbers.Length > 1024) &&
+            (TrySortCompactDouble(numbers) || TrySortProjected(numbers)))
             return;
 
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
@@ -1178,6 +1179,93 @@ public static partial class SortzNext
         for (; i < values.Length; i++)
             if (double.IsNaN(Unsafe.Add(ref data, i))) return true;
         return false;
+    }
+
+    // Monotone 32-bit projected keys: high bits identify a numeric interval,
+    // low bits identify the original value. Resolve collisions exactly.
+    private static bool TrySortCompactDouble(Span<double> values)
+    {
+        int length = values.Length;
+        int indexBits = BitOperations.Log2((uint)(length - 1)) + 1;
+        uint indexMask = (1u << indexBits) - 1;
+        int limit = (int)(uint.MaxValue >> indexBits);
+        ref double input = ref MemoryMarshal.GetReference(values);
+        double min = input, max = input;
+        int i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var lo = Vector512.Create(min);
+            var hi = lo;
+            for (; i <= length - 8; i += 8)
+            {
+                var v = Vector512.LoadUnsafe(ref input, (nuint)i);
+                lo = Vector512.Min(lo, v);
+                hi = Vector512.Max(hi, v);
+            }
+            for (int lane = 0; lane < 8; lane++)
+            {
+                min = Math.Min(min, lo.GetElement(lane));
+                max = Math.Max(max, hi.GetElement(lane));
+            }
+        }
+        for (; i < length; i++)
+        {
+            double value = Unsafe.Add(ref input, i);
+            min = Math.Min(min, value);
+            max = Math.Max(max, value);
+        }
+        double range = max - min;
+        double scale = limit / range;
+        if (!(range > 0) || !double.IsFinite(range) || !double.IsFinite(scale) || scale <= 0)
+            return false;
+
+        Span<int> keys = stackalloc int[length];
+        ref int key = ref MemoryMarshal.GetReference(keys);
+        for (i = 0; i < length; i++)
+        {
+            uint tag = (uint)Math.Min(limit, (int)((Unsafe.Add(ref input, i) - min) * scale));
+            Unsafe.Add(ref key, i) = (int)(((tag << indexBits) | (uint)i) ^ 0x80000000u);
+        }
+        SortInt32(keys);
+
+        // Avoid large equal-prefix groups on clustered inputs.
+        const int maxCollision = 32;
+        for (i = maxCollision; i < length; i += maxCollision)
+            if (((uint)(keys[i] ^ keys[i - maxCollision]) & ~indexMask) == 0)
+                return false;
+
+        double[]? rented = null;
+        Span<double> original = length <= 8192 ? stackalloc double[length] :
+            (rented = ArrayPool<double>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            values.CopyTo(original);
+            ref double copy = ref MemoryMarshal.GetReference(original);
+            for (i = 0; i < length; i++)
+                Unsafe.Add(ref input, i) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref key, i) & indexMask));
+
+            for (int start = 0; start < length;)
+            {
+                int end = start + 1;
+                uint prefix = (uint)Unsafe.Add(ref key, start) & ~indexMask;
+                while (end < length && ((uint)Unsafe.Add(ref key, end) & ~indexMask) == prefix)
+                    end++;
+                for (i = start + 1; i < end; i++)
+                {
+                    double value = Unsafe.Add(ref input, i);
+                    int j = i;
+                    while (j > start && Unsafe.Add(ref input, j - 1) > value)
+                    {
+                        Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
+                        j--;
+                    }
+                    Unsafe.Add(ref input, j) = value;
+                }
+                start = end;
+            }
+            return true;
+        }
+        finally { if (rented is not null) ArrayPool<double>.Shared.Return(rented); }
     }
 
     // Monotone numeric projection: a single scatter produces ordered buckets.
