@@ -414,8 +414,8 @@ public static partial class SortzNext
                 high[i] = (ushort)offset;
                 offset += count;
             }
-            ScatterCompact(keys, scratch, low, indexBits, lowMask, 0);
-            ScatterCompact(scratch, keys, high, highShift, highMask, sign);
+            ScatterProjectedCompact(keys, scratch, low, indexBits, lowMask, 0);
+            ScatterProjectedCompact(scratch, keys, high, highShift, highMask, sign);
         }
         finally
         {
@@ -480,6 +480,24 @@ public static partial class SortzNext
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void ScatterCompact(ReadOnlySpan<int> source, Span<int> target,
+        Span<ushort> histogram, int shift, uint mask, uint sign)
+    {
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref ushort offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value >> shift) & mask) ^ sign);
+            ref ushort position = ref Unsafe.Add(ref offsets, bucket);
+            int index = position;
+            position = (ushort)(index + 1);
+            Unsafe.Add(ref output, index) = value;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterProjectedCompact(ReadOnlySpan<int> source, Span<int> target,
         Span<ushort> histogram, int shift, uint mask, uint sign)
     {
         ref int input = ref MemoryMarshal.GetReference(source);
