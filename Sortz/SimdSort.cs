@@ -674,13 +674,154 @@ internal static class SimdSort
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void Sort64UInt64(Span<ulong> values)
+    {
+        ref ulong data = ref MemoryMarshal.GetReference(values);
+        var v0 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 0));
+        var v1 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 8));
+        var v2 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 16));
+        var v3 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 24));
+        var v4 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 32));
+        var v5 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 40));
+        var v6 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 48));
+        var v7 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 56));
+        var r2_0 = Vector512.Shuffle(v1, ReverseUInt64);
+        var h2_0 = Vector512.Max(v0, r2_0);
+        v0 = Vector512.Min(v0, r2_0);
+        v1 = h2_0;
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        var r2_2 = Vector512.Shuffle(v3, ReverseUInt64);
+        var h2_2 = Vector512.Max(v2, r2_2);
+        v2 = Vector512.Min(v2, r2_2);
+        v3 = h2_2;
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
+        var r2_4 = Vector512.Shuffle(v5, ReverseUInt64);
+        var h2_4 = Vector512.Max(v4, r2_4);
+        v4 = Vector512.Min(v4, r2_4);
+        v5 = h2_4;
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        var r2_6 = Vector512.Shuffle(v7, ReverseUInt64);
+        var h2_6 = Vector512.Max(v6, r2_6);
+        v6 = Vector512.Min(v6, r2_6);
+        v7 = h2_6;
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
+        var r4_0 = Vector512.Shuffle(v3, ReverseUInt64);
+        var h4_0 = Vector512.Max(v0, r4_0);
+        v0 = Vector512.Min(v0, r4_0);
+        var r4_1 = Vector512.Shuffle(v2, ReverseUInt64);
+        var h4_1 = Vector512.Max(v1, r4_1);
+        v1 = Vector512.Min(v1, r4_1);
+        v2 = h4_0;
+        v3 = h4_1;
+        var t4_1_0 = Vector512.Max(v0, v1);
+        v0 = Vector512.Min(v0, v1);
+        v1 = t4_1_0;
+        var t4_1_2 = Vector512.Max(v2, v3);
+        v2 = Vector512.Min(v2, v3);
+        v3 = t4_1_2;
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
+        var r4_4 = Vector512.Shuffle(v7, ReverseUInt64);
+        var h4_4 = Vector512.Max(v4, r4_4);
+        v4 = Vector512.Min(v4, r4_4);
+        var r4_5 = Vector512.Shuffle(v6, ReverseUInt64);
+        var h4_5 = Vector512.Max(v5, r4_5);
+        v5 = Vector512.Min(v5, r4_5);
+        v6 = h4_4;
+        v7 = h4_5;
+        var t4_1_4 = Vector512.Max(v4, v5);
+        v4 = Vector512.Min(v4, v5);
+        v5 = t4_1_4;
+        var t4_1_6 = Vector512.Max(v6, v7);
+        v6 = Vector512.Min(v6, v7);
+        v7 = t4_1_6;
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
+        var r8_0 = Vector512.Shuffle(v7, ReverseUInt64);
+        var h8_0 = Vector512.Max(v0, r8_0);
+        v0 = Vector512.Min(v0, r8_0);
+        var r8_1 = Vector512.Shuffle(v6, ReverseUInt64);
+        var h8_1 = Vector512.Max(v1, r8_1);
+        v1 = Vector512.Min(v1, r8_1);
+        var r8_2 = Vector512.Shuffle(v5, ReverseUInt64);
+        var h8_2 = Vector512.Max(v2, r8_2);
+        v2 = Vector512.Min(v2, r8_2);
+        var r8_3 = Vector512.Shuffle(v4, ReverseUInt64);
+        var h8_3 = Vector512.Max(v3, r8_3);
+        v3 = Vector512.Min(v3, r8_3);
+        v4 = h8_0;
+        v5 = h8_1;
+        v6 = h8_2;
+        v7 = h8_3;
+        var t8_2_0 = Vector512.Max(v0, v2);
+        v0 = Vector512.Min(v0, v2);
+        v2 = t8_2_0;
+        var t8_2_1 = Vector512.Max(v1, v3);
+        v1 = Vector512.Min(v1, v3);
+        v3 = t8_2_1;
+        var t8_2_4 = Vector512.Max(v4, v6);
+        v4 = Vector512.Min(v4, v6);
+        v6 = t8_2_4;
+        var t8_2_5 = Vector512.Max(v5, v7);
+        v5 = Vector512.Min(v5, v7);
+        v7 = t8_2_5;
+        var t8_1_0 = Vector512.Max(v0, v1);
+        v0 = Vector512.Min(v0, v1);
+        v1 = t8_1_0;
+        var t8_1_2 = Vector512.Max(v2, v3);
+        v2 = Vector512.Min(v2, v3);
+        v3 = t8_1_2;
+        var t8_1_4 = Vector512.Max(v4, v5);
+        v4 = Vector512.Min(v4, v5);
+        v5 = t8_1_4;
+        var t8_1_6 = Vector512.Max(v6, v7);
+        v6 = Vector512.Min(v6, v7);
+        v7 = t8_1_6;
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
+        v0.StoreUnsafe(ref data, 0);
+        v1.StoreUnsafe(ref data, 8);
+        v2.StoreUnsafe(ref data, 16);
+        v3.StoreUnsafe(ref data, 24);
+        v4.StoreUnsafe(ref data, 32);
+        v5.StoreUnsafe(ref data, 40);
+        v6.StoreUnsafe(ref data, 48);
+        v7.StoreUnsafe(ref data, 56);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void SortUInt64Core(Span<ulong> values)
     {
         ref ulong data = ref MemoryMarshal.GetReference(values);
         const int lanes = 8;
-        for (int i = 0; i < values.Length; i += lanes)
-            SortVectorUInt64(Vector512.LoadUnsafe(ref data, (nuint)i)).StoreUnsafe(ref data, (nuint)i);
-        for (int width = lanes * 2; width <= values.Length; width *= 2)
+        int initialWidth;
+        if (values.Length >= 64)
+        {
+            for (int i = 0; i < values.Length; i += 64)
+                Sort64UInt64(values.Slice(i, 64));
+            initialWidth = 128;
+        }
+        else
+        {
+            for (int i = 0; i < values.Length; i += lanes)
+                SortVectorUInt64(Vector512.LoadUnsafe(ref data, (nuint)i)).StoreUnsafe(ref data, (nuint)i);
+            initialWidth = lanes * 2;
+        }
+        for (int width = initialWidth; width <= values.Length; width *= 2)
         {
             int half = width / 2;
             for (int start = 0; start < values.Length; start += width)
