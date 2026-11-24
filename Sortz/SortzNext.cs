@@ -575,7 +575,7 @@ public static class SortzNext
                 ends[b] = sum;
             }
 
-            for (int b = 0; b < ends.Length; b++)
+            for (int b = min; b <= max; b++)
             {
                 while (next[b] < ends[b])
                 {
@@ -658,16 +658,107 @@ public static class SortzNext
         if (bits.Length < 2)
             return;
 
-        foreach (ref ulong item in bits)
-            item ^= (ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL;
+        TransformDoubleKeys(bits, false);
         try
         {
             SortUInt64(bits);
         }
         finally
         {
-            foreach (ref ulong item in bits)
-                item ^= (ulong)(((long)item >> 63) ^ -1L) | 0x8000_0000_0000_0000UL;
+            TransformDoubleKeys(bits, true);
+        }
+    }
+
+    private static void TransformDoubleKeys(Span<ulong> bits, bool inverse)
+    {
+        const ulong sign = 0x8000_0000_0000_0000UL;
+        ref ulong data = ref MemoryMarshal.GetReference(bits);
+        int i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var signVector = Vector512.Create(sign);
+            for (; i <= bits.Length - 8; i += 8)
+            {
+                var value = Vector512.LoadUnsafe(ref data, (nuint)i);
+                var mask = (value.AsInt64() >> 63).AsUInt64();
+                if (inverse) mask = ~mask;
+                (value ^ (mask | signVector)).StoreUnsafe(ref data, (nuint)i);
+            }
+        }
+
+        for (; i < bits.Length; i++)
+        {
+            ref ulong value = ref Unsafe.Add(ref data, i);
+            ulong mask = (ulong)((long)value >> 63);
+            value ^= (inverse ? ~mask : mask) | sign;
+        }
+    }
+
+    private static void SortUInt64Wide(Span<ulong> bits)
+    {
+        const int width = 11, stride = 2048;
+        Span<int> counts = stackalloc int[stride * 5 + 512];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref ulong data = ref MemoryMarshal.GetReference(bits);
+        for (int i = 0; i < bits.Length; i++)
+        {
+            ulong key = Unsafe.Add(ref data, i);
+            Unsafe.Add(ref h, (int)(key & 2047))++;
+            Unsafe.Add(ref h, stride + (int)((key >> 11) & 2047))++;
+            Unsafe.Add(ref h, stride * 2 + (int)((key >> 22) & 2047))++;
+            Unsafe.Add(ref h, stride * 3 + (int)((key >> 33) & 2047))++;
+            Unsafe.Add(ref h, stride * 4 + (int)((key >> 44) & 2047))++;
+            Unsafe.Add(ref h, stride * 5 + (int)(key >> 55))++;
+        }
+
+        ulong[]? rented = null;
+        Span<ulong> scratch = bits.Length <= 8192 ? stackalloc ulong[bits.Length] :
+            (rented = ArrayPool<ulong>.Shared.Rent(bits.Length)).AsSpan(0, bits.Length);
+        try
+        {
+            bool inScratch = false;
+            ulong first = bits[0];
+            for (int digit = 0; digit < 6; digit++)
+            {
+                int shift = digit * width;
+                Span<int> histogram = counts.Slice(digit * stride, digit == 5 ? 512 : stride);
+                ulong mask = (uint)(histogram.Length - 1);
+                if (histogram[(int)((first >> shift) & mask)] == bits.Length)
+                    continue;
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
+                if (inScratch)
+                    ScatterUInt64Wide(scratch, bits, histogram, shift, mask);
+                else
+                    ScatterUInt64Wide(bits, scratch, histogram, shift, mask);
+                inScratch = !inScratch;
+            }
+            if (inScratch) scratch.CopyTo(bits);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<ulong>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterUInt64Wide(ReadOnlySpan<ulong> source, Span<ulong> target,
+        Span<int> histogram, int shift, ulong mask)
+    {
+        ref ulong input = ref MemoryMarshal.GetReference(source);
+        ref ulong output = ref MemoryMarshal.GetReference(target);
+        ref int offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            ulong value = Unsafe.Add(ref input, i);
+            int bucket = (int)((value >> shift) & mask);
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, bucket)++) = value;
         }
     }
 
@@ -678,6 +769,12 @@ public static class SortzNext
         if (Vector512.IsHardwareAccelerated && bits.Length <= 256)
         {
             SimdSort.SortUInt64(bits);
+            return;
+        }
+
+        if (firstDigit == 0 && bits.Length >= 4096)
+        {
+            SortUInt64Wide(bits);
             return;
         }
 
