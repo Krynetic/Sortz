@@ -264,43 +264,10 @@ public static class SortzNext
             return;
         }
 
-        if (count >= 1024)
+        if (count >= 4096)
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
-    }
-
-    private static readonly Vector512<int> PrefixShift1 = Vector512.Create(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
-    private static readonly Vector512<int> PrefixShift2 = Vector512.Create(-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
-    private static readonly Vector512<int> PrefixShift4 = Vector512.Create(-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
-    private static readonly Vector512<int> PrefixShift8 = Vector512.Create(-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7);
-
-    // Exclusive prefix scan of counts, in 16-counter blocks.
-    private static void PrefixOffsets(Span<int> histogram)
-    {
-        ref int data = ref MemoryMarshal.GetReference(histogram);
-        int carry = 0, i = 0;
-        if (Vector512.IsHardwareAccelerated)
-        {
-            for (; i <= histogram.Length - 16; i += 16)
-            {
-                var v = Vector512.LoadUnsafe(ref data, (nuint)i);
-                v += Vector512.Shuffle(v, PrefixShift1);
-                v += Vector512.Shuffle(v, PrefixShift2);
-                v += Vector512.Shuffle(v, PrefixShift4);
-                v += Vector512.Shuffle(v, PrefixShift8);
-                var exclusive = Vector512.Shuffle(v, PrefixShift1) + Vector512.Create(carry);
-                carry += v.GetElement(15);
-                exclusive.StoreUnsafe(ref data, (nuint)i);
-            }
-        }
-        for (; i < histogram.Length; i++)
-        {
-            ref int entry = ref Unsafe.Add(ref data, i);
-            int frequency = entry;
-            entry = carry;
-            carry += frequency;
-        }
     }
 
     private static void SortInt32Wide(Span<int> values)
@@ -332,7 +299,13 @@ public static class SortzNext
                 if (histogram[(int)((first >> shift) & mask)] == count)
                     continue;
 
-                PrefixOffsets(histogram);
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
 
                 if (inScratch)
                     ScatterWide(scratch, values, histogram, shift, mask);
@@ -400,7 +373,13 @@ public static class SortzNext
                 if (histogram[bucket] == count)
                     continue;
 
-                PrefixOffsets(histogram);
+                int sum = 0;
+                for (int b = 0; b < 256; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
 
                 if (inScratch)
                     ScatterInt32(scratch, values, histogram, shift, sign);
@@ -541,6 +520,9 @@ public static class SortzNext
             TrySortOrdinal32(values))
             return;
 
+        if (count is > 4096 and <= 32768 && TrySortOrdinalAlphabet(values))
+            return;
+
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
         ulong indexMask = (1UL << indexBits) - 1;
         int units = (64 - indexBits) / 8;
@@ -629,6 +611,93 @@ public static class SortzNext
         {
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
+        }
+    }
+
+    // Discover the actual ordered alphabet, then use its ranks as four-bit
+    // symbols. Full ordinal comparison resolves every truncated-prefix tie.
+    private static bool TrySortOrdinalAlphabet(Span<string?> values)
+    {
+        int count = values.Length;
+        ulong low = 0, high = 0;
+        foreach (string? value in values)
+        {
+            if (value is null || value.Length < 4)
+                return false;
+            for (int j = 0; j < 4; j++)
+            {
+                uint ch = value[j];
+                if (ch >= 128) return false;
+                if (ch < 64) low |= 1UL << (int)ch;
+                else high |= 1UL << (int)ch;
+            }
+            if (BitOperations.PopCount(low) + BitOperations.PopCount(high) > 16)
+                return false;
+        }
+
+        Span<byte> rank = stackalloc byte[128];
+        int next = 0;
+        while (low != 0)
+        {
+            int bit = BitOperations.TrailingZeroCount(low);
+            rank[bit] = (byte)next++;
+            low &= low - 1;
+        }
+        while (high != 0)
+        {
+            int bit = BitOperations.TrailingZeroCount(high);
+            rank[64 + bit] = (byte)next++;
+            high &= high - 1;
+        }
+
+        int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
+        uint indexMask = (1u << indexBits) - 1;
+        int[] rentedKeys = ArrayPool<int>.Shared.Rent(count);
+        Span<int> keys = rentedKeys.AsSpan(0, count);
+        try
+        {
+            ref byte table = ref MemoryMarshal.GetReference(rank);
+            for (int i = 0; i < count; i++)
+            {
+                string value = values[i]!;
+                uint prefix = ((uint)Unsafe.Add(ref table, value[0]) << 12) |
+                    ((uint)Unsafe.Add(ref table, value[1]) << 8) |
+                    ((uint)Unsafe.Add(ref table, value[2]) << 4) |
+                    Unsafe.Add(ref table, value[3]);
+                keys[i] = (int)((prefix << indexBits) | (uint)i);
+            }
+
+            SortInt32(keys);
+            string?[] rented = ArrayPool<string?>.Shared.Rent(count);
+            Span<string?> original = rented.AsSpan(0, count);
+            try
+            {
+                values.CopyTo(original);
+                for (int i = 0; i < count; i++)
+                    values[i] = original[(int)((uint)keys[i] & indexMask)];
+            }
+            finally
+            {
+                original.Clear();
+                ArrayPool<string?>.Shared.Return(rented);
+            }
+
+            for (int start = 0; start < count;)
+            {
+                uint prefix = (uint)keys[start] >> indexBits;
+                int end = start + 1;
+                while (end < count && ((uint)keys[end] >> indexBits) == prefix)
+                    end++;
+                if (end - start > 1)
+                    SortOrdinalBuckets(values[start..end], 4, 32);
+                start = end;
+            }
+
+            return true;
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(rentedKeys);
         }
     }
 
@@ -1004,7 +1073,13 @@ public static class SortzNext
                 ulong mask = (uint)(histogram.Length - 1);
                 if (histogram[(int)((first >> shift) & mask)] == bits.Length)
                     continue;
-                PrefixOffsets(histogram);
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
                 if (inScratch)
                     ScatterUInt64Wide(scratch, bits, histogram, shift, mask);
                 else
@@ -1083,7 +1158,13 @@ public static class SortzNext
                 if (histogram[(byte)(first >> shift)] == bits.Length)
                     continue;
 
-                PrefixOffsets(histogram);
+                int sum = 0;
+                for (int b = 0; b < 256; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
 
                 if (inScratch)
                     ScatterUInt64(scratch, bits, histogram, shift);
