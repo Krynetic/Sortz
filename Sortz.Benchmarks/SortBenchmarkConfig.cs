@@ -6,13 +6,16 @@ namespace Sortz.Benchmarks;
 
 public sealed class SortBenchmarkConfig : ManualConfig
 {
+    public const int BatchSize = 16;
+
     public SortBenchmarkConfig()
     {
         AddLogger(new SummaryConsoleLogger());
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(10)
+            .WithWarmupCount(20)
+            .WithIterationCount(40)
             .WithLaunchCount(1)
             .WithInvocationCount(1)
             .WithUnrollFactor(1));
