@@ -688,7 +688,7 @@ public static partial class SortzNext
             for (; index < length; index++)
             {
                 uint high = typeof(T) == typeof(decimal)
-                    ? DecimalCompactPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, index)))
+                    ? (uint)(DecimalPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, index)), parts) >> 32)
                     : typeof(T) == typeof(ulong)
                         ? (uint)(Unsafe.As<T, ulong>(ref Unsafe.Add(ref input, index)) >> 32)
                         : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, index)) >> 96);
@@ -779,19 +779,6 @@ public static partial class SortzNext
 
     // Normalize a decimal coefficient to 29 digits and encode its decimal
     // exponent. Equal numeric values have the same prefix regardless of scale.
-    // Conversion to double is monotonic for the decimal domain. Equal
-    // projected keys are resolved by exact decimal comparisons.
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static uint DecimalCompactPrefix(decimal value)
-    {
-        double projected = (double)value;
-        if (projected == 0) return 0x80000000u;
-        ulong bits = BitConverter.DoubleToUInt64Bits(projected);
-        ulong ordered = (bits & 0x8000000000000000UL) != 0
-            ? ~bits : bits ^ 0x8000000000000000UL;
-        return (uint)(ordered >> 32);
-    }
-
     private static ulong DecimalPrefix(decimal value, Span<int> parts)
     {
         decimal.GetBits(value, parts);
