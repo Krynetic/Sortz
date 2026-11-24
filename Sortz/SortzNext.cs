@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using System.Buffers.Binary;
-using System.Reflection;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -65,53 +64,80 @@ public static class SortzNext
             SortOrdinalPacked(strings);
             // Ordinal order often matches culture-sensitive order for identifiers.
             // Always verify against the actual comparer, never assume equivalence.
-            if (TryOrdered(strings, Comparer<string?>.Default))
+            if (IsCultureOrdered(strings))
                 return;
             if (values.Length >= 2048 && TrySortCultureStrings(strings))
                 return;
         }
 
-        if (!typeof(T).IsValueType && ReferenceEquals(comparer, Comparer<T>.Default) &&
-            RuntimeFeature.IsDynamicCodeSupported && ComparableDispatch<T>.Sort is { } sort)
+        if (!typeof(T).IsValueType && ReferenceEquals(comparer, Comparer<T>.Default))
         {
-            sort(values);
+            SortReference(values, Comparer<T>.Default,
+                2 * (BitOperations.Log2((uint)values.Length) + 1));
             return;
         }
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
 
-    private delegate void SpanSorter<T>(Span<T> values);
-
-    private static class ComparableDispatch<T>
+    private static void SortReference<T>(Span<T> values, Comparer<T> comparer, int depth)
     {
-        internal static readonly SpanSorter<T>? Sort = Create();
-
-        private static SpanSorter<T>? Create()
+        while (values.Length > 16)
         {
-            if (!typeof(IComparable<T>).IsAssignableFrom(typeof(T)))
-                return null;
+            if (depth-- == 0)
+            {
+                HeapSort(values, comparer);
+                return;
+            }
 
-            return typeof(SortzNext).GetMethod(nameof(SortComparable), BindingFlags.NonPublic | BindingFlags.Static)!
-                .MakeGenericMethod(typeof(T)).CreateDelegate<SpanSorter<T>>();
+            int last = values.Length - 1, middle = last >> 1;
+            if (comparer.Compare(values[0], values[middle]) > 0) Swap(values, 0, middle);
+            if (comparer.Compare(values[0], values[last]) > 0) Swap(values, 0, last);
+            if (comparer.Compare(values[middle], values[last]) > 0) Swap(values, middle, last);
+            Swap(values, middle, last - 1);
+            T pivot = values[last - 1];
+
+            int left = 0, right = last - 1;
+            while (true)
+            {
+                do { left++; } while (left < last - 1 && comparer.Compare(values[left], pivot) < 0);
+                do { right--; } while (right > 0 && comparer.Compare(pivot, values[right]) < 0);
+                if (left >= right)
+                    break;
+                Swap(values, left, right);
+            }
+
+            Swap(values, left, last - 1);
+            Span<T> lower = values[..left], upper = values[(left + 1)..];
+            if (lower.Length < upper.Length)
+            {
+                SortReference(lower, comparer, depth);
+                values = upper;
+            }
+            else
+            {
+                SortReference(upper, comparer, depth);
+                values = lower;
+            }
         }
-    }
 
-    private static void SortComparable<T>(Span<T> values) where T : class, IComparable<T>
-    {
-        int nonNull = 0;
-        for (int i = 0; i < values.Length; i++)
-            if (values[i] is null)
-                Swap(values, nonNull++, i);
-        Span<T> tail = values[nonNull..];
-        if (tail.Length > 1)
-            IntroSort(tail, new NonNullComparable<T>(), 2 * (BitOperations.Log2((uint)tail.Length) + 1));
-    }
-
-    private readonly struct NonNullComparable<T> : IComparer<T> where T : class, IComparable<T>
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Compare(T? x, T? y) => x!.CompareTo(y);
+        for (int i = 1; i < values.Length; i++)
+        {
+            T key = values[i];
+            if (comparer.Compare(values[i - 1], key) <= 0)
+                continue;
+            int lo = 0, hi = i - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (comparer.Compare(values[mid], key) <= 0)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            values[lo..i].CopyTo(values[(lo + 1)..(i + 1)]);
+            values[lo] = key;
+        }
     }
 
     private static void SortInt32(Span<int> values)
@@ -157,7 +183,77 @@ public static class SortzNext
             return;
         }
 
-        SortInt32Lsd(values);
+        if (count >= 4096)
+            SortInt32Wide(values);
+        else
+            SortInt32Lsd(values);
+    }
+
+    private static void SortInt32Wide(Span<int> values)
+    {
+        int count = values.Length;
+        Span<int> counts = stackalloc int[2048 + 2048 + 1024];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        foreach (int value in values)
+        {
+            uint key = (uint)value ^ 0x8000_0000u;
+            Unsafe.Add(ref h, (int)(key & 2047))++;
+            Unsafe.Add(ref h, 2048 + (int)((key >> 11) & 2047))++;
+            Unsafe.Add(ref h, 4096 + (int)(key >> 22))++;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = count <= 16384 ? stackalloc int[count] :
+            (rented = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+        try
+        {
+            bool inScratch = false;
+            uint first = (uint)values[0] ^ 0x8000_0000u;
+            for (int digit = 0; digit < 3; digit++)
+            {
+                int shift = digit * 11;
+                Span<int> histogram = counts.Slice(digit * 2048, digit == 2 ? 1024 : 2048);
+                uint mask = (uint)(histogram.Length - 1);
+                if (histogram[(int)((first >> shift) & mask)] == count)
+                    continue;
+
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
+
+                if (inScratch)
+                    ScatterWide(scratch, values, histogram, shift, mask);
+                else
+                    ScatterWide(values, scratch, histogram, shift, mask);
+                inScratch = !inScratch;
+            }
+
+            if (inScratch) scratch.CopyTo(values);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterWide(ReadOnlySpan<int> source, Span<int> target,
+        Span<int> histogram, int shift, uint mask)
+    {
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref int offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value ^ 0x8000_0000u) >> shift) & mask);
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, bucket)++) = value;
+        }
     }
 
     private static void SortInt32Lsd(Span<int> values)
@@ -394,24 +490,22 @@ public static class SortzNext
                 }
             }
 
-            SortUInt64(keys);
+            SortUInt64(keys, 8 - units * (latin1 ? 1 : 2));
 
-            // Apply the permutation in place; preserve each prefix for tie runs.
-            for (int i = 0; i < count; i++)
+            // The low index bits are payload, not part of the ordering.
+            // Sequential reference writes avoid the cache misses of permutation cycles.
+            string?[] references = ArrayPool<string?>.Shared.Rent(count);
+            Span<string?> original = references.AsSpan(0, count);
+            try
             {
-                int next = (int)(keys[i] & indexMask);
-                if (next == i) continue;
-                string? saved = values[i];
-                int current = i;
-                while (next != i)
-                {
-                    values[current] = values[next];
-                    keys[current] = (keys[current] & ~indexMask) | (uint)current;
-                    current = next;
-                    next = (int)(keys[current] & indexMask);
-                }
-                values[current] = saved;
-                keys[current] = (keys[current] & ~indexMask) | (uint)current;
+                values.CopyTo(original);
+                for (int i = 0; i < count; i++)
+                    values[i] = original[(int)(keys[i] & indexMask)];
+            }
+            finally
+            {
+                original.Clear();
+                ArrayPool<string?>.Shared.Return(references);
             }
 
             for (int start = 0; start < count;)
@@ -511,6 +605,15 @@ public static class SortzNext
         SortOrdinal(values, index, 64);
     }
 
+    private static bool IsCultureOrdered(ReadOnlySpan<string?> values)
+    {
+        CompareInfo compare = CultureInfo.CurrentCulture.CompareInfo;
+        for (int i = 1; i < values.Length; i++)
+            if (compare.Compare(values[i - 1], values[i], CompareOptions.None) > 0)
+                return false;
+        return true;
+    }
+
     private static bool TryOrdered<T>(Span<T> values, IComparer<T> comparer)
     {
         int i = 1, order = 0;
@@ -568,7 +671,7 @@ public static class SortzNext
         }
     }
 
-    private static void SortUInt64(Span<ulong> bits)
+    private static void SortUInt64(Span<ulong> bits, int firstDigit = 0)
     {
         if (bits.Length < 2)
             return;
@@ -604,7 +707,7 @@ public static class SortzNext
 
             bool inScratch = false;
             ulong first = bits[0];
-            for (int digit = 0; digit < 8; digit++)
+            for (int digit = firstDigit; digit < 8; digit++)
             {
                 int shift = digit * 8;
                 Span<int> histogram = counts.Slice(digit * 256, 256);
