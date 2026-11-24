@@ -1,9 +1,30 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>Sortz</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Krynetic</Authors>
+    <Company>Krynetic</Company>
+    <Description>High-performance, in-place sorting for .NET lists and spans with SIMD-accelerated primitive sorting and comparer-aware fallbacks.</Description>
+    <PackageTags>sorting;sort;performance;simd;span;algorithms</PackageTags>
+    <PackageProjectUrl>https://github.com/Krynetic/Sortz</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Krynetic/Sortz.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 </Project>
