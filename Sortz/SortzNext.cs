@@ -617,7 +617,7 @@ public static class SortzNext
     {
         int count = values.Length;
         int indexBits = BitOperations.Log2((uint)(count - 1)) + 1;
-        int units = count <= 4096 ? 4 : 3;
+        const int units = 4;
         int width = (31 - indexBits) / units;
         if (width < 4)
             return false;
@@ -634,10 +634,9 @@ public static class SortzNext
 
         uint symbolMask = (1u << width) - 1;
         ulong baseValue = (ulong)(min & ~(int)(symbolMask >> 1));
-        ulong lanes = units == 4 ? 0x0001000100010001UL : 0x0000000100010001UL;
+        const ulong lanes = 0x0001000100010001UL;
         ulong repeatedBase = baseValue * lanes;
         ulong mask = (ulong)symbolMask * lanes;
-        ulong inputMask = units == 4 ? ulong.MaxValue : 0x0000ffffffffffffUL;
         ulong reversedMask = BinaryPrimitives.ReverseEndianness(mask);
         uint indexMask = (1u << indexBits) - 1;
         int[]? rentedKeys = null;
@@ -652,7 +651,7 @@ public static class SortzNext
             if (value is null || value.Length < 4)
                 return false;
             ref byte data = ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(value.AsSpan()));
-            ulong adjusted = (Unsafe.ReadUnaligned<ulong>(ref data) & inputMask) - repeatedBase;
+            ulong adjusted = Unsafe.ReadUnaligned<ulong>(ref data) - repeatedBase;
             if ((adjusted & ~mask) != 0)
                 return false;
             ulong prefix = Bmi2.X64.ParallelBitExtract(
@@ -870,7 +869,8 @@ public static class SortzNext
                     Swap(values, nanCount++, i);
 
         Span<double> numbers = values[nanCount..];
-        if (numbers.Length is >= 512 and < 4096 && TrySortProjected(numbers))
+        if (numbers.Length is >= 512 and < 4096 &&
+            (!Vector512.IsHardwareAccelerated || numbers.Length > 1024) && TrySortProjected(numbers))
             return;
 
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
@@ -1101,7 +1101,7 @@ public static class SortzNext
     {
         if (bits.Length < 2)
             return;
-        if (Vector512.IsHardwareAccelerated && bits.Length <= 256)
+        if (Vector512.IsHardwareAccelerated && bits.Length <= 1024)
         {
             SimdSort.SortUInt64(bits);
             return;
