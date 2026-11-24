@@ -171,53 +171,33 @@ public static class SortzNext
     private static int PartitionComparableBlocks<T>(ref T data, int right, IComparable<T> pivot)
     {
         const int Block = 32;
-        Span<int> indices = stackalloc int[Block * 2];
-        ref int leftIndices = ref MemoryMarshal.GetReference(indices);
-        ref int rightIndices = ref Unsafe.Add(ref leftIndices, Block);
-        int left = 1, lc = 0, rc = 0, li = 0, ri = 0;
-
+        int left = 1;
+        uint lm = 0, rm = 0;
         while (right - left + 1 >= Block * 2)
         {
-            if (lc == 0)
-            {
-                li = 0;
+            if (lm == 0)
                 for (int i = 0; i < Block; i++)
-                {
-                    Unsafe.Add(ref leftIndices, lc) = i;
-                    lc += pivot.CompareTo(Unsafe.Add(ref data, left + i)) <= 0 ? 1 : 0;
-                }
-            }
-
-            if (rc == 0)
-            {
-                ri = 0;
+                    lm |= (pivot.CompareTo(Unsafe.Add(ref data, left + i)) <= 0 ? 1u : 0u) << i;
+            if (rm == 0)
                 for (int i = 0; i < Block; i++)
-                {
-                    Unsafe.Add(ref rightIndices, rc) = i;
-                    rc += pivot.CompareTo(Unsafe.Add(ref data, right - i)) >= 0 ? 1 : 0;
-                }
-            }
+                    rm |= (pivot.CompareTo(Unsafe.Add(ref data, right - i)) >= 0 ? 1u : 0u) << i;
 
-            int swaps = Math.Min(lc, rc);
-            for (int i = 0; i < swaps; i++)
+            while ((lm != 0) & (rm != 0))
             {
-                ref T a = ref Unsafe.Add(ref data, left + Unsafe.Add(ref leftIndices, li + i));
-                ref T b = ref Unsafe.Add(ref data, right - Unsafe.Add(ref rightIndices, ri + i));
+                ref T a = ref Unsafe.Add(ref data, left + BitOperations.TrailingZeroCount(lm));
+                ref T b = ref Unsafe.Add(ref data, right - BitOperations.TrailingZeroCount(rm));
                 (a, b) = (b, a);
+                lm &= lm - 1;
+                rm &= rm - 1;
             }
-
-            lc -= swaps; rc -= swaps; li += swaps; ri += swaps;
-            if (lc == 0) left += Block;
-            if (rc == 0) right -= Block;
+            if (lm == 0) left += Block;
+            if (rm == 0) right -= Block;
         }
 
-        // Any partially consumed block remains inside this scalar tail.
         while (left <= right)
         {
-            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, left)) > 0)
-                left++;
-            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, right)) < 0)
-                right--;
+            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, left)) > 0) left++;
+            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, right)) < 0) right--;
             if (left > right) break;
             ref T a = ref Unsafe.Add(ref data, left++);
             ref T b = ref Unsafe.Add(ref data, right--);
