@@ -21,7 +21,7 @@ public sealed class ExtendedSortTests
         var random = new Random(42);
         var bytes = new byte[count * sizeof(double)];
         random.NextBytes(bytes);
-        var input = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, double>(bytes).ToArray();
+        var input = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, double>(bytes.AsSpan()).ToArray();
         Check(input);
         var actual = (double[])input.Clone();
         SortzNext.Sort(actual.AsSpan());

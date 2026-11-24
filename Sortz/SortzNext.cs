@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -41,13 +42,21 @@ public static class SortzNext
 
         if (typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal))
         {
-            SortOrdinal(MemoryMarshal.CreateSpan(
-                ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length), 0, 64);
+            var strings = MemoryMarshal.CreateSpan(
+                ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length);
+            if (!TryOrdered(strings, StringComparer.Ordinal))
+                SortOrdinal(strings, 0, 64);
             return;
         }
 
         comparer ??= Comparer<T>.Default;
         if (TryOrdered(values, comparer))
+            return;
+
+        if (typeof(T) == typeof(string) && values.Length >= 1024 &&
+            ReferenceEquals(comparer, Comparer<T>.Default) &&
+            TrySortCultureStrings(MemoryMarshal.CreateSpan(
+                ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length)))
             return;
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
@@ -161,6 +170,67 @@ public static class SortzNext
             int bucket = (int)((((uint)value >> shift) & 255) ^ sign);
             int position = Unsafe.Add(ref offsets, bucket)++;
             Unsafe.Add(ref output, position) = value;
+        }
+    }
+
+    private readonly record struct CultureEntry(string? Value, int Offset, int Length);
+
+    private sealed class CultureEntryComparer(byte[] keys) : IComparer<CultureEntry>
+    {
+        public int Compare(CultureEntry x, CultureEntry y)
+        {
+            if (x.Value is null)
+                return y.Value is null ? 0 : -1;
+            if (y.Value is null)
+                return 1;
+
+            return keys.AsSpan(x.Offset, x.Length)
+                .SequenceCompareTo(keys.AsSpan(y.Offset, y.Length));
+        }
+    }
+
+    private static bool TrySortCultureStrings(Span<string?> values)
+    {
+        const int MaxKeyBytes = 64 * 1024 * 1024;
+        CompareInfo compareInfo = CultureInfo.CurrentCulture.CompareInfo;
+        CultureEntry[] rentedEntries = ArrayPool<CultureEntry>.Shared.Rent(values.Length);
+        Span<CultureEntry> entries = rentedEntries.AsSpan(0, values.Length);
+        byte[]? keys = null;
+        try
+        {
+            int total = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                string? value = values[i];
+                int length = value is null ? 0 : compareInfo.GetSortKeyLength(value.AsSpan(), CompareOptions.None);
+                if (length > MaxKeyBytes - total)
+                    return false;
+                entries[i] = new CultureEntry(value, total, length);
+                total += length;
+            }
+
+            keys = ArrayPool<byte>.Shared.Rent(total);
+            for (int i = 0; i < entries.Length; i++)
+            {
+                CultureEntry entry = entries[i];
+                if (entry.Value is not null)
+                    compareInfo.GetSortKey(entry.Value.AsSpan(), keys.AsSpan(entry.Offset, entry.Length), CompareOptions.None);
+            }
+
+            IntroSort(entries, new CultureEntryComparer(keys),
+                2 * (BitOperations.Log2((uint)entries.Length) + 1));
+
+            for (int i = 0; i < values.Length; i++)
+                values[i] = entries[i].Value;
+
+            return true;
+        }
+        finally
+        {
+            entries.Clear();
+            ArrayPool<CultureEntry>.Shared.Return(rentedEntries);
+            if (keys is not null)
+                ArrayPool<byte>.Shared.Return(keys);
         }
     }
 
