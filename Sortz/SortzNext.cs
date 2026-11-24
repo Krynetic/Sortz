@@ -329,10 +329,85 @@ public static class SortzNext
             return;
         }
 
-        if (count >= 4096)
+        if (count is >= 4096 and <= 65535)
+            SortInt32CompactRadix(values);
+        else if (count >= 4096)
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
+    }
+
+    // For at most 65,535 elements, both frequencies and exclusive offsets
+    // fit in 16 bits. This halves histogram footprint without truncating keys.
+    private static void SortInt32CompactRadix(Span<int> values)
+    {
+        int count = values.Length;
+        Span<ushort> counts = stackalloc ushort[2048 + 2048 + 1024];
+        counts.Clear();
+        ref ushort h = ref MemoryMarshal.GetReference(counts);
+        ref int source = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < count; i++)
+        {
+            uint key = (uint)Unsafe.Add(ref source, i);
+            Unsafe.Add(ref h, (int)(key & 2047))++;
+            Unsafe.Add(ref h, 2048 + (int)((key >> 11) & 2047))++;
+            Unsafe.Add(ref h, 4096 + (int)((key >> 22) ^ 512))++;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = count <= 16384 ? stackalloc int[count] :
+            (rented = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+        try
+        {
+            bool inScratch = false;
+            uint first = (uint)source;
+            for (int digit = 0; digit < 3; digit++)
+            {
+                int shift = digit * 11;
+                Span<ushort> histogram = counts.Slice(digit * 2048, digit == 2 ? 1024 : 2048);
+                uint mask = (uint)(histogram.Length - 1);
+                uint sign = digit == 2 ? 512u : 0u;
+                if (histogram[(int)(((first >> shift) & mask) ^ sign)] == count)
+                    continue;
+
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = (ushort)sum;
+                    sum += frequency;
+                }
+
+                if (inScratch)
+                    ScatterCompact(scratch, values, histogram, shift, mask, sign);
+                else
+                    ScatterCompact(values, scratch, histogram, shift, mask, sign);
+                inScratch = !inScratch;
+            }
+            if (inScratch) scratch.CopyTo(values);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterCompact(ReadOnlySpan<int> source, Span<int> target,
+        Span<ushort> histogram, int shift, uint mask, uint sign)
+    {
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref ushort offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value >> shift) & mask) ^ sign);
+            ref ushort position = ref Unsafe.Add(ref offsets, bucket);
+            int index = position;
+            position = (ushort)(index + 1);
+            Unsafe.Add(ref output, index) = value;
+        }
     }
 
     private static void SortInt32Wide(Span<int> values)
