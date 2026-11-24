@@ -118,17 +118,24 @@ public static class SortzNext
             Unsafe.Add(ref data, last) = c;
 
             var pivot = (IComparable<T>)b!;
-            int left = 0, right = last - 1;
-            while (true)
+            int left;
+            if (values.Length >= 128)
+                left = PartitionComparableBlocks(ref data, last - 2, pivot);
+            else
             {
-                do { left++; } while (left < last - 1 &&
-                    pivot.CompareTo(Unsafe.Add(ref data, left)) > 0);
-                do { right--; } while (right > 0 &&
-                    pivot.CompareTo(Unsafe.Add(ref data, right)) < 0);
-                if (left >= right) break;
-                ref T l = ref Unsafe.Add(ref data, left);
-                ref T r = ref Unsafe.Add(ref data, right);
-                (l, r) = (r, l);
+                left = 0;
+                int right = last - 1;
+                while (true)
+                {
+                    do { left++; } while (left < last - 1 &&
+                        pivot.CompareTo(Unsafe.Add(ref data, left)) > 0);
+                    do { right--; } while (right > 0 &&
+                        pivot.CompareTo(Unsafe.Add(ref data, right)) < 0);
+                    if (left >= right) break;
+                    ref T l = ref Unsafe.Add(ref data, left);
+                    ref T r = ref Unsafe.Add(ref data, right);
+                    (l, r) = (r, l);
+                }
             }
 
             Unsafe.Add(ref data, last - 1) = Unsafe.Add(ref data, left);
@@ -159,6 +166,64 @@ public static class SortzNext
             }
             Unsafe.Add(ref input, j) = key;
         }
+    }
+
+    private static int PartitionComparableBlocks<T>(ref T data, int right, IComparable<T> pivot)
+    {
+        const int Block = 32;
+        Span<int> indices = stackalloc int[Block * 2];
+        ref int leftIndices = ref MemoryMarshal.GetReference(indices);
+        ref int rightIndices = ref Unsafe.Add(ref leftIndices, Block);
+        int left = 1, lc = 0, rc = 0, li = 0, ri = 0;
+
+        while (right - left + 1 >= Block * 2)
+        {
+            if (lc == 0)
+            {
+                li = 0;
+                for (int i = 0; i < Block; i++)
+                {
+                    Unsafe.Add(ref leftIndices, lc) = i;
+                    lc += pivot.CompareTo(Unsafe.Add(ref data, left + i)) <= 0 ? 1 : 0;
+                }
+            }
+
+            if (rc == 0)
+            {
+                ri = 0;
+                for (int i = 0; i < Block; i++)
+                {
+                    Unsafe.Add(ref rightIndices, rc) = i;
+                    rc += pivot.CompareTo(Unsafe.Add(ref data, right - i)) >= 0 ? 1 : 0;
+                }
+            }
+
+            int swaps = Math.Min(lc, rc);
+            for (int i = 0; i < swaps; i++)
+            {
+                ref T a = ref Unsafe.Add(ref data, left + Unsafe.Add(ref leftIndices, li + i));
+                ref T b = ref Unsafe.Add(ref data, right - Unsafe.Add(ref rightIndices, ri + i));
+                (a, b) = (b, a);
+            }
+
+            lc -= swaps; rc -= swaps; li += swaps; ri += swaps;
+            if (lc == 0) left += Block;
+            if (rc == 0) right -= Block;
+        }
+
+        // Any partially consumed block remains inside this scalar tail.
+        while (left <= right)
+        {
+            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, left)) > 0)
+                left++;
+            while (left <= right && pivot.CompareTo(Unsafe.Add(ref data, right)) < 0)
+                right--;
+            if (left > right) break;
+            ref T a = ref Unsafe.Add(ref data, left++);
+            ref T b = ref Unsafe.Add(ref data, right--);
+            (a, b) = (b, a);
+        }
+        return left;
     }
 
     private static void SortReference<T>(Span<T> values, Comparer<T> comparer, int depth)
