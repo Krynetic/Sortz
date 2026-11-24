@@ -119,7 +119,7 @@ public static class SortzNext
 
             var pivot = (IComparable<T>)b!;
             int left;
-            if (values.Length >= 128)
+            if (values.Length >= 256)
                 left = PartitionComparableBlocks(ref data, last - 2, pivot);
             else
             {
@@ -934,7 +934,7 @@ public static class SortzNext
                     Swap(values, nanCount++, i);
 
         Span<double> numbers = values[nanCount..];
-        if (numbers.Length is >= 512 and < 4096 &&
+        if (numbers.Length is >= 512 and <= 16384 &&
             (!Vector512.IsHardwareAccelerated || numbers.Length > 1024) && TrySortProjected(numbers))
             return;
 
@@ -978,7 +978,7 @@ public static class SortzNext
     private static bool TrySortProjected(Span<double> values)
     {
         int length = values.Length;
-        int buckets = 1 << Math.Clamp(BitOperations.Log2((uint)length) - 2, 5, 11);
+        int buckets = 1 << Math.Clamp(BitOperations.Log2((uint)length) - 1, 5, 12);
         double min = values[0], max = min;
         ref double input = ref MemoryMarshal.GetReference(values);
         int i = 0;
@@ -1014,12 +1014,38 @@ public static class SortzNext
         counts.Clear();
         ref int histogram = ref MemoryMarshal.GetReference(counts);
         int limit = buckets - 1;
-        for (i = 0; i < length; i++)
+        Span<int> tags = stackalloc int[length];
+        ref int tag = ref MemoryMarshal.GetReference(tags);
+        i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var origin = Vector512.Create(min);
+            var multiplier = Vector512.Create(scale);
+            var ceiling = Vector512.Create((double)limit);
+            Span<long> lanes = stackalloc long[8];
+            ref long laneData = ref MemoryMarshal.GetReference(lanes);
+            for (; i <= length - 8; i += 8)
+            {
+                var v = Vector512.LoadUnsafe(ref input, (nuint)i);
+                Vector512.ConvertToInt64(Vector512.Min((v - origin) * multiplier, ceiling))
+                    .StoreUnsafe(ref laneData);
+                for (int j = 0; j < 8; j++)
+                {
+                    int bucket = (int)Unsafe.Add(ref laneData, j);
+                    Unsafe.Add(ref tag, i + j) = bucket;
+                    Unsafe.Add(ref histogram, bucket)++;
+                }
+            }
+        }
+        for (; i < length; i++)
         {
             int bucket = Math.Min(limit, (int)((Unsafe.Add(ref input, i) - min) * scale));
-            if (++Unsafe.Add(ref histogram, bucket) > 48)
-                return false;
+            Unsafe.Add(ref tag, i) = bucket;
+            Unsafe.Add(ref histogram, bucket)++;
         }
+        for (int b = 0; b < buckets; b++)
+            if (Unsafe.Add(ref histogram, b) > 48)
+                return false;
 
         int sum = 0;
         for (int b = 0; b < buckets; b++)
@@ -1038,7 +1064,7 @@ public static class SortzNext
             for (i = 0; i < length; i++)
             {
                 double x = Unsafe.Add(ref input, i);
-                int bucket = Math.Min(limit, (int)((x - min) * scale));
+                int bucket = Unsafe.Add(ref tag, i);
                 Unsafe.Add(ref output, Unsafe.Add(ref histogram, bucket)++) = x;
             }
 
