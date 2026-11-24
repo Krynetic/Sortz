@@ -654,7 +654,11 @@ public static class SortzNext
             if (double.IsNaN(values[i]))
                 Swap(values, nanCount++, i);
 
-        Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(values[nanCount..]);
+        Span<double> numbers = values[nanCount..];
+        if (numbers.Length >= 512 && TrySortProjected(numbers))
+            return;
+
+        Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
         if (bits.Length < 2)
             return;
 
@@ -666,6 +670,102 @@ public static class SortzNext
         finally
         {
             TransformDoubleKeys(bits, true);
+        }
+    }
+
+    // Monotone numeric projection: a single scatter produces ordered buckets.
+    // The input is left untouched if the range or occupancy makes this unsuitable.
+    private static bool TrySortProjected(Span<double> values)
+    {
+        int length = values.Length;
+        int buckets = 1 << Math.Clamp(BitOperations.Log2((uint)length) - 2, 5, 11);
+        double min = values[0], max = min;
+        ref double input = ref MemoryMarshal.GetReference(values);
+        int i = 0;
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var lower = Vector512.Create(min);
+            var upper = lower;
+            for (; i <= length - 8; i += 8)
+            {
+                var v = Vector512.LoadUnsafe(ref input, (nuint)i);
+                lower = Vector512.Min(lower, v);
+                upper = Vector512.Max(upper, v);
+            }
+            for (int lane = 0; lane < 8; lane++)
+            {
+                min = Math.Min(min, lower.GetElement(lane));
+                max = Math.Max(max, upper.GetElement(lane));
+            }
+        }
+        for (; i < length; i++)
+        {
+            double x = Unsafe.Add(ref input, i);
+            min = Math.Min(min, x);
+            max = Math.Max(max, x);
+        }
+
+        double range = max - min;
+        double scale = (buckets - 1) / range;
+        if (!(range > 0) || !double.IsFinite(range) || !double.IsFinite(scale) || scale <= 0)
+            return false;
+
+        Span<int> counts = stackalloc int[buckets];
+        counts.Clear();
+        ref int histogram = ref MemoryMarshal.GetReference(counts);
+        int limit = buckets - 1;
+        for (i = 0; i < length; i++)
+        {
+            int bucket = Math.Min(limit, (int)((Unsafe.Add(ref input, i) - min) * scale));
+            if (++Unsafe.Add(ref histogram, bucket) > 48)
+                return false;
+        }
+
+        int sum = 0;
+        for (int b = 0; b < buckets; b++)
+        {
+            int count = Unsafe.Add(ref histogram, b);
+            Unsafe.Add(ref histogram, b) = sum;
+            sum += count;
+        }
+
+        double[]? rented = null;
+        Span<double> scratch = length <= 8192 ? stackalloc double[length] :
+            (rented = ArrayPool<double>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref double output = ref MemoryMarshal.GetReference(scratch);
+            for (i = 0; i < length; i++)
+            {
+                double x = Unsafe.Add(ref input, i);
+                int bucket = Math.Min(limit, (int)((x - min) * scale));
+                Unsafe.Add(ref output, Unsafe.Add(ref histogram, bucket)++) = x;
+            }
+
+            int start = 0;
+            for (int b = 0; b < buckets; b++)
+            {
+                int end = Unsafe.Add(ref histogram, b);
+                for (i = start + 1; i < end; i++)
+                {
+                    double x = Unsafe.Add(ref output, i);
+                    int j = i;
+                    while (j > start && Unsafe.Add(ref output, j - 1) > x)
+                    {
+                        Unsafe.Add(ref output, j) = Unsafe.Add(ref output, j - 1);
+                        j--;
+                    }
+                    Unsafe.Add(ref output, j) = x;
+                }
+                start = end;
+            }
+
+            scratch.CopyTo(values);
+            return true;
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<double>.Shared.Return(rented);
         }
     }
 
