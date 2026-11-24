@@ -520,6 +520,7 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length is >= 256 and <= 65536 && TryBucketInteger128(values, true)) return;
         if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
         var bits = MemoryMarshal.Cast<Int128, UInt128>(values);
@@ -533,9 +534,79 @@ public static partial class SortzNext
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (values.Length is >= 256 and <= 65536 && TryBucketInteger128(values, false)) return;
         if (values.Length <= 65536 && TryProjectedInteger128(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
         SortRadix128(values);
+    }
+
+    // MSD distribution into small contiguous runs. Dense prefixes fall back
+    // before mutation; local comparisons use the full 128-bit value.
+    private static bool TryBucketInteger128<T>(Span<T> values, bool signed)
+        where T : unmanaged, IBinaryInteger<T>
+    {
+        int length = values.Length;
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 7, 13);
+        int buckets = 1 << width, shift = 64 - width;
+        ulong sign = signed ? 0x8000000000000000UL : 0UL;
+        Span<int> counts = stackalloc int[buckets];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref T input = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < length; i++)
+        {
+            ulong high = (ulong)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, i)) >> 64) ^ sign;
+            if (++Unsafe.Add(ref h, (int)(high >> shift)) > 32)
+                return false;
+        }
+
+        PrefixPrimitive(counts);
+        T[]? rented = null;
+        Span<T> scratch = length <= 4096 ? stackalloc T[length] :
+            (rented = ArrayPool<T>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref T output = ref MemoryMarshal.GetReference(scratch);
+            for (int i = 0; i < length; i++)
+            {
+                T value = Unsafe.Add(ref input, i);
+                ulong high = (ulong)(Unsafe.As<T, UInt128>(ref value) >> 64) ^ sign;
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (int)(high >> shift))++) = value;
+            }
+
+            int start = 0;
+            for (int b = 0; b < buckets; b++)
+            {
+                int end = Unsafe.Add(ref h, b);
+                if (end == start) continue;
+                T first = Unsafe.Add(ref output, start);
+                Unsafe.Add(ref input, start) = first;
+                if (end == start + 2)
+                {
+                    T second = Unsafe.Add(ref output, start + 1);
+                    bool swap = first > second;
+                    Unsafe.Add(ref input, start) = swap ? second : first;
+                    Unsafe.Add(ref input, start + 1) = swap ? first : second;
+                }
+                else
+                {
+                    for (int i = start + 1; i < end; i++)
+                    {
+                        T key = Unsafe.Add(ref output, i);
+                        int j = i;
+                        while (j > start && Unsafe.Add(ref input, j - 1) > key)
+                        {
+                            Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
+                            j--;
+                        }
+                        Unsafe.Add(ref input, j) = key;
+                    }
+                }
+                start = end;
+            }
+            return true;
+        }
+        finally { if (rented is not null) ArrayPool<T>.Shared.Return(rented); }
     }
 
     private static void SortRadix128(Span<UInt128> values)
@@ -620,9 +691,13 @@ public static partial class SortzNext
             ref T input = ref MemoryMarshal.GetReference(values);
             ref int keyData = ref MemoryMarshal.GetReference(keys);
             uint first = 0, varying = 0;
+            Span<int> parts = stackalloc int[4];
             for (int i = 0; i < length; i++)
             {
-                uint prefix = ((uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, i)) >> 96) ^ sign) & ~indexMask;
+                uint high = typeof(T) == typeof(decimal)
+                    ? (uint)(DecimalPrefix(Unsafe.As<T, decimal>(ref Unsafe.Add(ref input, i)), parts) >> 32)
+                    : (uint)(Unsafe.As<T, UInt128>(ref Unsafe.Add(ref input, i)) >> 96);
+                uint prefix = (high ^ sign) & ~indexMask;
                 if (i == 0) first = prefix;
                 varying |= prefix ^ first;
                 Unsafe.Add(ref keyData, i) = (int)(prefix | (uint)i);
@@ -776,6 +851,7 @@ public static partial class SortzNext
     private static void SortDecimal(Span<decimal> values)
     {
         if (TryOrdered(values, Comparer<decimal>.Default)) return;
+        if (values.Length is >= 64 and <= 65536 && TryProjectedInteger128(values, new DecimalComparer(), false)) return;
         if (values.Length >= 64 && values.Length <= 1048576 && TryProjected128(values, new DecimalComparer(), false)) return;
         // Decimal is not a CLR primitive. Keep exact comparisons and avoid
         // virtual comparer dispatch; the original encoding of equal values is preserved.
