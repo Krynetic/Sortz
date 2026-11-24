@@ -53,11 +53,19 @@ public static class SortzNext
         if (TryOrdered(values, comparer))
             return;
 
-        if (typeof(T) == typeof(string) && values.Length >= 2048 &&
-            ReferenceEquals(comparer, Comparer<T>.Default) &&
-            TrySortCultureStrings(MemoryMarshal.CreateSpan(
-                ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length)))
-            return;
+        if (typeof(T) == typeof(string) && values.Length >= 64 &&
+            ReferenceEquals(comparer, Comparer<T>.Default))
+        {
+            var strings = MemoryMarshal.CreateSpan(
+                ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length);
+            SortOrdinalBuckets(strings, 0, 32);
+            // Ordinal order often matches culture-sensitive order for identifiers.
+            // Always verify against the actual comparer, never assume equivalence.
+            if (TryOrdered(strings, Comparer<string?>.Default))
+                return;
+            if (values.Length >= 2048 && TrySortCultureStrings(strings))
+                return;
+        }
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
@@ -99,106 +107,78 @@ public static class SortzNext
             return;
         }
 
-        uint[]? rented = null;
-        Span<uint> bits = MemoryMarshal.Cast<int, uint>(values);
-        Span<uint> scratch = count <= 16384
-            ? stackalloc uint[count]
-            : (rented = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
+        // Build all four byte histograms in one traversal.
+        Span<int> counts = stackalloc int[4 * 256];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref int v = ref MemoryMarshal.GetReference(values);
+        for (i = 0; i < count; i++)
+        {
+            uint key = (uint)Unsafe.Add(ref v, i);
+            Unsafe.Add(ref h, (int)(key & 255))++;
+            Unsafe.Add(ref h, 256 + (int)((key >> 8) & 255))++;
+            Unsafe.Add(ref h, 512 + (int)((key >> 16) & 255))++;
+            Unsafe.Add(ref h, 768 + (int)((key >> 24) ^ 128))++;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = count <= 16384
+            ? stackalloc int[count]
+            : (rented = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+
         try
         {
-            for (int j = 0; j < count; j++)
-                bits[j] ^= 0x8000_0000u;
+            // Skip uniform digits. The highest byte flips the sign bit.
+            bool inScratch = false;
+            for (int digit = 0; digit < 4; digit++)
+            {
+                int shift = digit * 8;
+                uint sign = digit == 3 ? 128u : 0u;
+                Span<int> histogram = counts.Slice(digit * 256, 256);
+                int bucket = (int)((((uint)values[0] >> shift) & 255) ^ sign);
+                if (histogram[bucket] == count)
+                    continue;
 
-            RadixMsd(bits, scratch);
+                int sum = 0;
+                for (int b = 0; b < 256; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
 
-            for (int j = 0; j < count; j++)
-                bits[j] ^= 0x8000_0000u;
+                if (inScratch)
+                    ScatterInt32(scratch, values, histogram, shift, sign);
+                else
+                    ScatterInt32(values, scratch, histogram, shift, sign);
+
+                inScratch = !inScratch;
+            }
+
+            if (inScratch)
+                scratch.CopyTo(values);
         }
         finally
         {
             if (rented is not null)
-                ArrayPool<uint>.Shared.Return(rented);
+                ArrayPool<int>.Shared.Return(rented);
         }
     }
 
-    // Adaptive most-significant-digit distribution. Small buckets are
-    // finished locally, rather than traversing every element for every byte.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void RadixMsd<T>(Span<T> values, Span<T> scratch)
-        where T : unmanaged, IBinaryInteger<T>, IUnsignedNumber<T>
+    private static void ScatterInt32(ReadOnlySpan<int> source, Span<int> target,
+        Span<int> histogram, int shift, uint sign)
     {
-        int length = values.Length;
-        if (length <= 24)
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref int offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
         {
-            for (int i = 1; i < length; i++)
-            {
-                T key = values[i];
-                int j = i;
-                while (j > 0 && values[j - 1] > key)
-                {
-                    values[j] = values[j - 1];
-                    j--;
-                }
-                values[j] = key;
-            }
-            return;
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value >> shift) & 255) ^ sign);
+            int position = Unsafe.Add(ref offsets, bucket)++;
+            Unsafe.Add(ref output, position) = value;
         }
-
-        ref T input = ref MemoryMarshal.GetReference(values);
-        T first = input;
-        T varying = T.Zero;
-        for (int i = 1; i < length; i++)
-            varying |= Unsafe.Add(ref input, i) ^ first;
-        ulong mask = ulong.CreateTruncating(varying);
-        if (mask == 0)
-            return;
-
-        int significant = BitOperations.Log2(mask) + 1;
-        int width = Math.Min(significant,
-            Math.Clamp(BitOperations.Log2((uint)length) - 1, 4, 11));
-        int shift = significant - width;
-        int bucketCount = 1 << width;
-        uint bucketMask = (uint)(bucketCount - 1);
-        Span<int> offsets = stackalloc int[bucketCount];
-        offsets.Clear();
-        ref int offset = ref MemoryMarshal.GetReference(offsets);
-
-        for (int i = 0; i < length; i++)
-        {
-            int bucket = (int)((ulong.CreateTruncating(Unsafe.Add(ref input, i)) >> shift) & bucketMask);
-            Unsafe.Add(ref offset, bucket)++;
-        }
-
-        int sum = 0;
-        for (int b = 0; b < bucketCount; b++)
-        {
-            int frequency = Unsafe.Add(ref offset, b);
-            Unsafe.Add(ref offset, b) = sum;
-            sum += frequency;
-        }
-
-        ref T output = ref MemoryMarshal.GetReference(scratch);
-        for (int i = 0; i < length; i++)
-        {
-            T value = Unsafe.Add(ref input, i);
-            int bucket = (int)((ulong.CreateTruncating(value) >> shift) & bucketMask);
-            Unsafe.Add(ref output, Unsafe.Add(ref offset, bucket)++) = value;
-        }
-
-        if (shift != 0)
-        {
-            int begin = 0;
-            for (int b = 0; b < bucketCount; b++)
-            {
-                int end = Unsafe.Add(ref offset, b);
-                int size = end - begin;
-                if (size > 1)
-                    RadixMsd(scratch.Slice(begin, size), values.Slice(begin, size));
-                begin = end;
-            }
-        }
-
-        scratch.CopyTo(values);
     }
 
     private readonly record struct CultureEntry(string? Value, int Offset, int Length, ulong Prefix);
@@ -295,7 +275,7 @@ public static class SortzNext
     // general UTF-16 multikey fallback. Null and end-of-string sort first.
     private static void SortOrdinalBuckets(Span<string?> values, int index, int budget)
     {
-        if (values.Length < 128 || budget == 0)
+        if (values.Length < 32 || budget == 0)
         {
             SortOrdinal(values, index, 64);
             return;
@@ -306,7 +286,7 @@ public static class SortzNext
         while (budget-- > 0)
         {
             ends.Clear();
-            int nonEmpty = 0, only = 0;
+            int nonEmpty = 0, only = 0, min = 257, max = 0;
             foreach (string? value in values)
             {
                 int digit = OrdinalDigit(value, index) + 2;
@@ -319,6 +299,8 @@ public static class SortzNext
                 {
                     nonEmpty++;
                     only = digit;
+                    min = Math.Min(min, digit);
+                    max = Math.Max(max, digit);
                 }
             }
 
@@ -331,7 +313,7 @@ public static class SortzNext
             }
 
             int sum = 0;
-            for (int b = 0; b < ends.Length; b++)
+            for (int b = min; b <= max; b++)
             {
                 next[b] = sum;
                 sum += ends[b];
@@ -356,9 +338,9 @@ public static class SortzNext
                 }
             }
 
-            for (int b = 2; b < ends.Length; b++)
+            for (int b = Math.Max(2, min); b <= max; b++)
             {
-                int start = ends[b - 1], length = ends[b] - start;
+                int start = b == min ? 0 : ends[b - 1], length = ends[b] - start;
                 if (length > 1)
                     SortOrdinalBuckets(values.Slice(start, length), index + 1, budget);
             }
@@ -419,14 +401,53 @@ public static class SortzNext
 
         try
         {
+            Span<int> counts = stackalloc int[8 * 256];
+            counts.Clear();
+            ref int h = ref MemoryMarshal.GetReference(counts);
             ref ulong data = ref MemoryMarshal.GetReference(bits);
+            // Transform once, rather than repeating the IEEE-754 mapping
+            // for each radix pass. The mapping is reversible, including +/-0.
             for (int i = 0; i < bits.Length; i++)
             {
                 ref ulong item = ref Unsafe.Add(ref data, i);
-                item ^= (ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL;
+                ulong key = item ^ ((ulong)((long)item >> 63) | 0x8000_0000_0000_0000UL);
+                item = key;
+                Unsafe.Add(ref h, (byte)key)++;
+                Unsafe.Add(ref h, 256 + (byte)(key >> 8))++;
+                Unsafe.Add(ref h, 512 + (byte)(key >> 16))++;
+                Unsafe.Add(ref h, 768 + (byte)(key >> 24))++;
+                Unsafe.Add(ref h, 1024 + (byte)(key >> 32))++;
+                Unsafe.Add(ref h, 1280 + (byte)(key >> 40))++;
+                Unsafe.Add(ref h, 1536 + (byte)(key >> 48))++;
+                Unsafe.Add(ref h, 1792 + (byte)(key >> 56))++;
             }
 
-            RadixMsd(bits, scratch);
+            bool inScratch = false;
+            ulong first = bits[0];
+            for (int digit = 0; digit < 8; digit++)
+            {
+                int shift = digit * 8;
+                Span<int> histogram = counts.Slice(digit * 256, 256);
+                if (histogram[(byte)(first >> shift)] == bits.Length)
+                    continue;
+
+                int sum = 0;
+                for (int b = 0; b < 256; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = sum;
+                    sum += frequency;
+                }
+
+                if (inScratch)
+                    ScatterUInt64(scratch, bits, histogram, shift);
+                else
+                    ScatterUInt64(bits, scratch, histogram, shift);
+                inScratch = !inScratch;
+            }
+
+            if (inScratch)
+                scratch.CopyTo(bits);
 
             for (int i = 0; i < bits.Length; i++)
             {
@@ -438,6 +459,21 @@ public static class SortzNext
         {
             if (rented is not null)
                 ArrayPool<ulong>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterUInt64(ReadOnlySpan<ulong> source, Span<ulong> target,
+        Span<int> histogram, int shift)
+    {
+        ref ulong input = ref MemoryMarshal.GetReference(source);
+        ref ulong output = ref MemoryMarshal.GetReference(target);
+        ref int offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
+        {
+            ulong value = Unsafe.Add(ref input, i);
+            int bucket = (byte)(value >> shift);
+            Unsafe.Add(ref output, Unsafe.Add(ref offsets, bucket)++) = value;
         }
     }
 
@@ -477,10 +513,14 @@ public static class SortzNext
         }
 
         if (values.Length > 1)
-            IntroSort(values, StringComparer.Ordinal, 2 * (BitOperations.Log2((uint)values.Length) + 1));
+            IntroSort(values, new OrdinalComparer(), 2 * (BitOperations.Log2((uint)values.Length) + 1));
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private readonly struct OrdinalComparer : IComparer<string?>
+    {
+        public int Compare(string? x, string? y) => string.CompareOrdinal(x, y);
+    }
+
     private static void IntroSort<T, TComparer>(Span<T> values, TComparer comparer, int depth)
         where TComparer : IComparer<T>
     {
@@ -492,39 +532,37 @@ public static class SortzNext
                 return;
             }
 
+            ref T data = ref MemoryMarshal.GetReference(values);
             int last = values.Length - 1;
             int middle = last >> 1;
+            ref T firstValue = ref data;
+            ref T middleValue = ref Unsafe.Add(ref data, middle);
+            ref T lastValue = ref Unsafe.Add(ref data, last);
 
-            if (comparer.Compare(values[0], values[middle]) > 0)
-                Swap(values, 0, middle);
-            if (comparer.Compare(values[0], values[last]) > 0)
-                Swap(values, 0, last);
-            if (comparer.Compare(values[middle], values[last]) > 0)
-                Swap(values, middle, last);
+            if (comparer.Compare(firstValue, middleValue) > 0)
+                (firstValue, middleValue) = (middleValue, firstValue);
+            if (comparer.Compare(firstValue, lastValue) > 0)
+                (firstValue, lastValue) = (lastValue, firstValue);
+            if (comparer.Compare(middleValue, lastValue) > 0)
+                (middleValue, lastValue) = (lastValue, middleValue);
 
-            T pivot = values[middle];
-            int lower = 0, upper = last;
-
-            // Median-of-three provides sentinels for both scans.
+            T pivot = middleValue;
+            int lower = 1, upper = last - 1;
             while (true)
             {
-                while (comparer.Compare(values[lower], pivot) < 0)
+                while (lower < last && comparer.Compare(Unsafe.Add(ref data, lower), pivot) < 0)
                     lower++;
-                while (comparer.Compare(values[upper], pivot) > 0)
+                while (upper > 0 && comparer.Compare(Unsafe.Add(ref data, upper), pivot) > 0)
                     upper--;
-
                 if (lower >= upper)
                     break;
 
-                Swap(values, lower++, upper--);
+                ref T a = ref Unsafe.Add(ref data, lower++);
+                ref T b = ref Unsafe.Add(ref data, upper--);
+                (a, b) = (b, a);
             }
 
-            int split = upper + 1;
-            if (split == values.Length)
-                split--;
-            if (split == 0)
-                split++;
-
+            int split = Math.Clamp(upper + 1, 1, last);
             Span<T> left = values[..split];
             Span<T> right = values[split..];
 
@@ -546,18 +584,19 @@ public static class SortzNext
     private static void InsertionSort<T, TComparer>(Span<T> values, TComparer comparer)
         where TComparer : IComparer<T>
     {
+        ref T data = ref MemoryMarshal.GetReference(values);
         for (int i = 1; i < values.Length; i++)
         {
-            T value = values[i];
+            T value = Unsafe.Add(ref data, i);
             int j = i;
-            while (j > 0 && comparer.Compare(value, values[j - 1]) < 0)
+            while (j > 0 && comparer.Compare(value, Unsafe.Add(ref data, j - 1)) < 0)
             {
-                values[j] = values[j - 1];
+                Unsafe.Add(ref data, j) = Unsafe.Add(ref data, j - 1);
                 j--;
             }
 
             if (j != i)
-                values[j] = value;
+                Unsafe.Add(ref data, j) = value;
         }
     }
 
