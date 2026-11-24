@@ -258,7 +258,7 @@ public static class SortzNext
             return;
         }
 
-        if (Vector512.IsHardwareAccelerated && count <= 256)
+        if (Vector512.IsHardwareAccelerated && count <= 1024)
         {
             SimdSort.SortInt32(values);
             return;
@@ -516,7 +516,7 @@ public static class SortzNext
             return;
         }
 
-        if (count <= 32768 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
+        if (count <= 4096 && Bmi2.X64.IsSupported && BitConverter.IsLittleEndian &&
             TrySortOrdinal32(values))
             return;
 
