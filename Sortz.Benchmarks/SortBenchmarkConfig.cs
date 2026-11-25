@@ -2,7 +2,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.NoEmit;
 
-namespace Sortz.Benchmarks;
+namespace Krynetic.Sortz.Benchmarks;
 
 public sealed class SortBenchmarkConfig : ManualConfig
 {

@@ -7,9 +7,9 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Sortz;
+namespace Krynetic.Sortz;
 
-public static partial class SortzNext
+public static partial class Sorter
 {
     private const int InsertionThreshold = 16;
 

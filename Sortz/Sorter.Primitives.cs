@@ -5,9 +5,9 @@ using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
-namespace Sortz;
+namespace Krynetic.Sortz;
 
-public static partial class SortzNext
+public static partial class Sorter
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Span<TTo> Reinterpret<TFrom, TTo>(Span<TFrom> values) =>

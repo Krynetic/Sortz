@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class PackedStringTests
 {
@@ -21,7 +21,7 @@ public sealed class PackedStringTests
                 "abcdef" + (char)random.Next(65536) + random.Next(256).ToString("X2")).ToArray();
         var expected = (string?[])values.Clone();
         Array.Sort(expected, StringComparer.Ordinal);
-        SortzNext.Sort(values.AsSpan(), StringComparer.Ordinal);
+        Sorter.Sort(values.AsSpan(), StringComparer.Ordinal);
         Assert.Equal(expected, values);
     }
 }

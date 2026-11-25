@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using Sortz;
+using Krynetic.Sortz;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class SortPerformanceTests(ITestOutputHelper output)
 {

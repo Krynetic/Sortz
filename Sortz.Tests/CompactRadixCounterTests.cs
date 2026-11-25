@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class CompactRadixCounterTests
 {
@@ -23,7 +23,7 @@ public sealed class CompactRadixCounterTests
             }).ToArray();
             var expected = (int[])input.Clone();
             Array.Sort(expected);
-            SortzNext.Sort(input.AsSpan());
+            Sorter.Sort(input.AsSpan());
             Assert.Equal(expected, input);
         }
     }

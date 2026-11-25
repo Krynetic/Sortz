@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class CompactPrimitiveProjectionTests
 {
@@ -23,12 +23,12 @@ public sealed class CompactPrimitiveProjectionTests
             }).ToArray();
             var expected = (UInt128[])values.Clone();
             Array.Sort(expected);
-            SortzNext.Sort(values.AsSpan());
+            Sorter.Sort(values.AsSpan());
             Assert.Equal(expected, values);
             var signed = values.Select(x => unchecked((Int128)x)).Reverse().ToArray();
             var signedExpected = (Int128[])signed.Clone();
             Array.Sort(signedExpected);
-            SortzNext.Sort(signed.AsSpan());
+            Sorter.Sort(signed.AsSpan());
             Assert.Equal(signedExpected, signed);
         }
     }
@@ -48,7 +48,7 @@ public sealed class CompactPrimitiveProjectionTests
         byte first = guarded[0], last = guarded[^1];
         byte[] expected = guarded.AsSpan(1, count).ToArray();
         Array.Sort(expected);
-        SortzNext.Sort(guarded.AsSpan(1, count));
+        Sorter.Sort(guarded.AsSpan(1, count));
         Assert.Equal(first, guarded[0]);
         Assert.Equal(last, guarded[^1]);
         Assert.Equal(expected, guarded.AsSpan(1, count).ToArray());

@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using System.Runtime.InteropServices;
 
-namespace Sortz.Benchmarks;
+namespace Krynetic.Sortz.Benchmarks;
 
 public abstract class PrimitiveBitSortBenchmark<T> : TypedSortBenchmark<T> where T : unmanaged
 {

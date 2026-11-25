@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class DecimalPrefixTests
 {
@@ -24,7 +24,7 @@ public sealed class DecimalPrefixTests
         }
         var expected = (decimal[])values.Clone();
         Array.Sort(expected);
-        SortzNext.Sort(values.AsSpan());
+        Sorter.Sort(values.AsSpan());
         Assert.Equal(expected, values);
     }
 
@@ -39,7 +39,7 @@ public sealed class DecimalPrefixTests
             ((Int128)(i % 5 - 2) << 64) | (ulong)random.NextInt64()).ToArray();
         var expected = (Int128[])values.Clone();
         Array.Sort(expected);
-        SortzNext.Sort(values.AsSpan());
+        Sorter.Sort(values.AsSpan());
         Assert.Equal(expected, values);
     }
 }

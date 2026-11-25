@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class MediumSimdTests
 {
@@ -22,7 +22,7 @@ public sealed class MediumSimdTests
         }).ToArray();
         var expected = (double[])input.Clone();
         Array.Sort(expected);
-        SortzNext.Sort(input.AsSpan());
+        Sorter.Sort(input.AsSpan());
         Assert.Equal(expected, input);
         Assert.Equal(expected.Select(BitConverter.DoubleToInt64Bits).Order(),
             input.Select(BitConverter.DoubleToInt64Bits).Order());
