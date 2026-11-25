@@ -318,7 +318,8 @@ public static partial class Sortz
             return;
         }
 
-        if (count is >= 4096 and <= 65535 && TryBucketInt32(values))
+        if (count is >= 4096 and <= 65535 &&
+            (TryFixedBucketInt32(values) || TryBucketInt32(values)))
             return;
 
         if (Vector512.IsHardwareAccelerated && count <= 1024)
@@ -335,13 +336,78 @@ public static partial class Sortz
             SortInt32Lsd(values);
     }
 
+    // A single-pass distribution into fixed-capacity buckets avoids both
+    // the counting/prefix pass and the dependent scatter offsets. Abandon
+    // the attempt before touching the input if any bucket is too dense.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static bool TryFixedBucketInt32(Span<int> values)
+    {
+        int length = values.Length;
+        // Bound the scratch working set; larger arrays use compact MSD.
+        if (length > 16384) return false;
+        const int Capacity = 16;
+        int width = BitOperations.Log2((uint)length) - 1;
+        int bucketCount = 1 << width;
+        int shift = 32 - width;
+        Span<byte> counts = stackalloc byte[bucketCount];
+        counts.Clear();
+        int[] rented = ArrayPool<int>.Shared.Rent(bucketCount * Capacity);
+        try
+        {
+            ref byte h = ref MemoryMarshal.GetReference(counts);
+            ref int source = ref MemoryMarshal.GetReference(values);
+            ref int scratch = ref MemoryMarshal.GetArrayDataReference(rented);
+
+            for (int i = 0; i < length; i++)
+            {
+                int key = Unsafe.Add(ref source, i);
+                int bucket = (int)(((uint)key ^ 0x80000000u) >> shift);
+                ref byte count = ref Unsafe.Add(ref h, bucket);
+                int slot = count;
+                if (slot == Capacity) return false;
+                Unsafe.Add(ref scratch, bucket * Capacity + slot) = key;
+                count = (byte)(slot + 1);
+            }
+
+            int written = 0;
+            for (int b = 0; b < bucketCount; b++)
+            {
+                int count = Unsafe.Add(ref h, b);
+                if (count == 0) continue;
+                ref int a = ref Unsafe.Add(ref scratch, b * Capacity);
+                ref int dst = ref Unsafe.Add(ref source, written);
+                // Speculative insertion using compare/exchange without a
+                // data-dependent search branch for these tiny buckets.
+                dst = a;
+                for (int i = 1; i < count; i++)
+                {
+                    int carry = Unsafe.Add(ref a, i);
+                    for (int j = 0; j < i; j++)
+                    {
+                        ref int item = ref Unsafe.Add(ref dst, j);
+                        int previous = item;
+                        item = Math.Min(previous, carry);
+                        carry = Math.Max(previous, carry);
+                    }
+                    Unsafe.Add(ref dst, i) = carry;
+                }
+                written += count;
+            }
+            return true;
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
     // MSD distribution into small, cache-local buckets. Distribute full keys once,
     // then sort each bucket directly into the original destination. Reject skew before modifying the input.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TryBucketInt32(Span<int> values)
     {
         int length = values.Length;
-        int width = Math.Clamp(BitOperations.Log2((uint)length), 10, 14);
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 8, 13);
         int bucketCount = 1 << width;
         int shift = 32 - width;
         Span<ushort> counts = stackalloc ushort[bucketCount];

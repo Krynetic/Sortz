@@ -13,6 +13,8 @@ public sealed class MsdBucketTests
     [InlineData(4096)]
     [InlineData(4097)]
     [InlineData(8192)]
+    [InlineData(16384)]
+    [InlineData(16385)]
     [InlineData(10000)]
     [InlineData(65535)]
     [InlineData(65536)]
