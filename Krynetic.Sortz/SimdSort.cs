@@ -178,6 +178,12 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void SortInt32Core(Span<int> values)
     {
+        if (values.Length is >= 512 and <= 1024)
+        {
+            SortInt32Streaming(values);
+            return;
+        }
+
         ref int data = ref MemoryMarshal.GetReference(values);
         const int lanes = 16;
         int initialWidth;
@@ -257,6 +263,83 @@ internal static class SimdSort
                 }
             }
         }
+    }
+
+    // Merge sorted 128-element runs using a single vector of carry state.
+    // Each step emits the lowest 16 remaining elements, avoiding a full
+    // bitonic network over the entire run.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void SortInt32Streaming(Span<int> values)
+    {
+        Span<int> scratch = stackalloc int[values.Length];
+        for (int i = 0; i < values.Length; i += 128)
+            Sort128Int32(values.Slice(i, 128));
+
+        Span<int> source = values, target = scratch;
+        for (int width = 128; width < values.Length; width *= 2)
+        {
+            ref int src = ref MemoryMarshal.GetReference(source);
+            ref int dst = ref MemoryMarshal.GetReference(target);
+            for (int start = 0; start < values.Length; start += width * 2)
+            {
+                ref int left = ref Unsafe.Add(ref src, start);
+                ref int right = ref Unsafe.Add(ref left, width);
+                ref int output = ref Unsafe.Add(ref dst, start);
+
+                if (Unsafe.Add(ref left, width - 1) <= right)
+                {
+                    source.Slice(start, width * 2).CopyTo(target.Slice(start, width * 2));
+                    continue;
+                }
+                if (Unsafe.Add(ref right, width - 1) <= left)
+                {
+                    source.Slice(start + width, width).CopyTo(target.Slice(start, width));
+                    source.Slice(start, width).CopyTo(target.Slice(start + width, width));
+                    continue;
+                }
+
+                var carry = Vector512.LoadUnsafe(ref left);
+                MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref right), ref output);
+                int l = 16, r = 16, written = 16;
+                while (l < width && r < width)
+                {
+                    // Whichever run has the smaller next head supplies
+                    // the next vector. The other head bounds the carry.
+                    bool takeLeft = Unsafe.Add(ref left, l) <= Unsafe.Add(ref right, r);
+                    var next = takeLeft
+                        ? Vector512.LoadUnsafe(ref left, (nuint)l)
+                        : Vector512.LoadUnsafe(ref right, (nuint)r);
+                    l += takeLeft ? 16 : 0;
+                    r += takeLeft ? 0 : 16;
+                    MergeInt32Block(ref carry, next, ref Unsafe.Add(ref output, written));
+                    written += 16;
+                }
+                for (; l < width; l += 16, written += 16)
+                    MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref left, (nuint)l),
+                        ref Unsafe.Add(ref output, written));
+                for (; r < width; r += 16, written += 16)
+                    MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref right, (nuint)r),
+                        ref Unsafe.Add(ref output, written));
+                carry.StoreUnsafe(ref output, (nuint)written);
+            }
+            Span<int> swap = source;
+            source = target;
+            target = swap;
+        }
+        // A 512-element sort has two merge passes, a 1024-element
+        // sort has three. Only the latter finishes in scratch.
+        if (values.Length == 1024)
+            source.CopyTo(values);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void MergeInt32Block(ref Vector512<int> carry, Vector512<int> next, ref int output)
+    {
+        var reversed = Vector512.Shuffle(next, ReverseInt32);
+        var lo = Vector512.Min(carry, reversed);
+        var hi = Vector512.Max(carry, reversed);
+        MergeVectorInt32(lo).StoreUnsafe(ref output);
+        carry = MergeVectorInt32(hi);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
