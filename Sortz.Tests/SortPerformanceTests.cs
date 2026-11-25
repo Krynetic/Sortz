@@ -28,7 +28,7 @@ public sealed class SortPerformanceTests(ITestOutputHelper output)
             Reset(baseline, source);
             Reset(next, source);
             baseline.Sort();
-            next.SortNext();
+            next.Sortz();
         }
 
         const int iterations = 11;
@@ -60,7 +60,7 @@ public sealed class SortPerformanceTests(ITestOutputHelper output)
         double baselineNs = builtIn[iterations / 2] * (1e9 / Stopwatch.Frequency);
         double nextNs = candidate[iterations / 2] * (1e9 / Stopwatch.Frequency);
         output.WriteLine($"List.Sort: {baselineNs:N0} ns, {builtInBytes[iterations / 2]} B");
-        output.WriteLine($"SortNext:  {nextNs:N0} ns, {candidateBytes[iterations / 2]} B");
+        output.WriteLine($"Sortz:  {nextNs:N0} ns, {candidateBytes[iterations / 2]} B");
         output.WriteLine($"Speedup: {baselineNs / Math.Max(nextNs, 1):F3}x");
     }
 
@@ -73,7 +73,7 @@ public sealed class SortPerformanceTests(ITestOutputHelper output)
     {
         long bytes = GC.GetAllocatedBytesForCurrentThread();
         long start = Stopwatch.GetTimestamp();
-        if (next) list.SortNext();
+        if (next) list.Sortz();
         else list.Sort();
         long elapsed = Stopwatch.GetTimestamp() - start;
         return (elapsed, GC.GetAllocatedBytesForCurrentThread() - bytes);

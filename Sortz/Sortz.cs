@@ -9,18 +9,9 @@ using System.Runtime.InteropServices;
 
 namespace Krynetic.Sortz;
 
-public static partial class Sorter
+public static partial class Sortz
 {
     private const int InsertionThreshold = 16;
-
-    extension<T>(List<T> list)
-    {
-        public void SortNext(IComparer<T>? comparer = null)
-        {
-            ArgumentNullException.ThrowIfNull(list);
-            Sort(CollectionsMarshal.AsSpan(list), comparer);
-        }
-    }
 
     public static void Sort<T>(Span<T> values, IComparer<T>? comparer = null)
     {

@@ -26,7 +26,7 @@ public sealed class BlockPartitionTests
                     2 => i % 11 == 0 ? 0 : 1, _ => -i }, i)).ToArray();
             var expected = (Item?[])input.Clone();
             Array.Sort(expected);
-            Sorter.Sort(input.AsSpan());
+            Sortz.Sort(input.AsSpan());
             Assert.Equal(expected.Select(x => x?.Key), input.Select(x => x?.Key));
             Assert.Equal(expected.Select(x => x?.Id).Order(), input.Select(x => x?.Id).Order());
         }

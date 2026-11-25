@@ -21,7 +21,7 @@ public sealed class CompactLongPrefixTests
             }).ToArray();
             var expected = (string?[])input.Clone();
             Array.Sort(expected, StringComparer.Ordinal);
-            Sorter.Sort(input.AsSpan(), StringComparer.Ordinal);
+            Sortz.Sort(input.AsSpan(), StringComparer.Ordinal);
             Assert.Equal(expected, input);
         }
     }

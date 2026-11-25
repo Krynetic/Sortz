@@ -24,7 +24,7 @@ public sealed class SamplePartitionTests
                 new Item(distribution == 0 ? r.Next() : distribution == 1 ? r.Next(4) : i % 100 == 0 ? r.Next() : 1, i)).ToArray();
             var expected = (Item?[])values.Clone();
             Array.Sort(expected);
-            Sorter.Sort(values.AsSpan());
+            Sortz.Sort(values.AsSpan());
             Assert.Equal(expected.Select(x => x?.Key), values.Select(x => x?.Key));
             Assert.Equal(expected.Select(x => x?.Id).Order(), values.Select(x => x?.Id).Order());
         }

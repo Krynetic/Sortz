@@ -23,12 +23,12 @@ public sealed class CompactPrimitiveProjectionTests
             }).ToArray();
             var expected = (UInt128[])values.Clone();
             Array.Sort(expected);
-            Sorter.Sort(values.AsSpan());
+            Sortz.Sort(values.AsSpan());
             Assert.Equal(expected, values);
             var signed = values.Select(x => unchecked((Int128)x)).Reverse().ToArray();
             var signedExpected = (Int128[])signed.Clone();
             Array.Sort(signedExpected);
-            Sorter.Sort(signed.AsSpan());
+            Sortz.Sort(signed.AsSpan());
             Assert.Equal(signedExpected, signed);
         }
     }
@@ -48,7 +48,7 @@ public sealed class CompactPrimitiveProjectionTests
         byte first = guarded[0], last = guarded[^1];
         byte[] expected = guarded.AsSpan(1, count).ToArray();
         Array.Sort(expected);
-        Sorter.Sort(guarded.AsSpan(1, count));
+        Sortz.Sort(guarded.AsSpan(1, count));
         Assert.Equal(first, guarded[0]);
         Assert.Equal(last, guarded[^1]);
         Assert.Equal(expected, guarded.AsSpan(1, count).ToArray());

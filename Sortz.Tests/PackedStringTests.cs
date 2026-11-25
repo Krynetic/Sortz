@@ -21,7 +21,7 @@ public sealed class PackedStringTests
                 "abcdef" + (char)random.Next(65536) + random.Next(256).ToString("X2")).ToArray();
         var expected = (string?[])values.Clone();
         Array.Sort(expected, StringComparer.Ordinal);
-        Sorter.Sort(values.AsSpan(), StringComparer.Ordinal);
+        Sortz.Sort(values.AsSpan(), StringComparer.Ordinal);
         Assert.Equal(expected, values);
     }
 }

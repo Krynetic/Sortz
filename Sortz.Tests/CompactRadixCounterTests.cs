@@ -23,7 +23,7 @@ public sealed class CompactRadixCounterTests
             }).ToArray();
             var expected = (int[])input.Clone();
             Array.Sort(expected);
-            Sorter.Sort(input.AsSpan());
+            Sortz.Sort(input.AsSpan());
             Assert.Equal(expected, input);
         }
     }

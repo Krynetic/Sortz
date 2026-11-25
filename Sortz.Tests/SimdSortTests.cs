@@ -13,13 +13,13 @@ public sealed class SimdSortTests
             int[] actual = SortInputs.Create(size, seed % 8, seed);
             int[] expected = (int[])actual.Clone();
             Array.Sort(expected);
-            Sorter.Sort(actual.AsSpan());
+            Sortz.Sort(actual.AsSpan());
             Assert.Equal(expected, actual);
 
             double[] doubles = actual.Select((x, i) => (double)x / (i + 1)).Reverse().ToArray();
             double[] sorted = (double[])doubles.Clone();
             Array.Sort(sorted);
-            Sorter.Sort(doubles.AsSpan());
+            Sortz.Sort(doubles.AsSpan());
             Assert.Equal(sorted, doubles);
         }
     }

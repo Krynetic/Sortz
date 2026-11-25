@@ -21,7 +21,7 @@ public sealed class RadixSortTests
             var actual = SortInputs.Create(size, 0, seed);
             var expected = (int[])actual.Clone();
             Array.Sort(expected);
-            Sorter.Sort(actual.AsSpan(), Comparer<int>.Default);
+            Sortz.Sort(actual.AsSpan(), Comparer<int>.Default);
             Assert.Equal(expected, actual);
         }
     }
@@ -38,7 +38,7 @@ public sealed class RadixSortTests
             .Select(_ => random.Next(256) << shift).ToArray();
         var expected = (int[])actual.Clone();
         Array.Sort(expected);
-        Sorter.Sort(actual.AsSpan());
+        Sortz.Sort(actual.AsSpan());
         Assert.Equal(expected, actual);
     }
 
@@ -56,7 +56,7 @@ public sealed class RadixSortTests
         var actual = SortInputs.Create(100000, pattern);
         var expected = (int[])actual.Clone();
         Array.Sort(expected);
-        Sorter.Sort(actual.AsSpan());
+        Sortz.Sort(actual.AsSpan());
         Assert.Equal(expected, actual);
     }
 
@@ -67,7 +67,7 @@ public sealed class RadixSortTests
         var actual = SortInputs.Create(10000, 0);
         var expected = (int[])actual.Clone();
         Array.Sort(expected, comparer);
-        Sorter.Sort(actual.AsSpan(), comparer);
+        Sortz.Sort(actual.AsSpan(), comparer);
         Assert.Equal(expected, actual);
     }
 }

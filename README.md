@@ -54,7 +54,7 @@ Or reference the library project directly when working from the repository.
 using Krynetic.Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
-values.SortNext();
+values.Sortz();
 
 // [1, 2, 3, 4, 5]
 ```
@@ -65,13 +65,13 @@ values.SortNext();
 using Krynetic.Sortz;
 
 int[] numbers = [9, 3, 7, 1];
-Sorter.Sort(numbers.AsSpan());
+Sortz.Sort(numbers.AsSpan());
 
 Span<int> buffer = stackalloc int[] { 8, 4, 2, 6 };
-Sorter.Sort(buffer);
+Sortz.Sort(buffer);
 
 // Sort only a range of an array.
-Sorter.Sort(numbers.AsSpan(1, 2));
+Sortz.Sort(numbers.AsSpan(1, 2));
 ```
 
 ### Custom comparers and descending order
@@ -80,7 +80,7 @@ Sorter.Sort(numbers.AsSpan(1, 2));
 using Krynetic.Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
-values.SortNext(Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
+values.Sortz(Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
 ```
 
 ### Strings
@@ -91,13 +91,13 @@ using Krynetic.Sortz;
 List<string> names = ["Charlie", "Alice", "Bob"];
 
 // Default comparison (culture-sensitive for strings).
-names.SortNext();
+names.Sortz();
 
 // Ordinal comparison.
-names.SortNext(StringComparer.Ordinal);
+names.Sortz(StringComparer.Ordinal);
 
 // Case-insensitive ordinal comparison.
-names.SortNext(StringComparer.OrdinalIgnoreCase);
+names.Sortz(StringComparer.OrdinalIgnoreCase);
 ```
 
 ### Custom types
@@ -106,17 +106,19 @@ names.SortNext(StringComparer.OrdinalIgnoreCase);
 using Krynetic.Sortz;
 
 List<Product> products = [new("Keyboard", 129), new("Mouse", 49)];
-products.SortNext(Comparer<Product>.Create(static (a, b) => a.Price.CompareTo(b.Price)));
+products.Sortz(Comparer<Product>.Create(static (a, b) => a.Price.CompareTo(b.Price)));
 
 record Product(string Name, decimal Price);
 ```
+
+The extension method is provided by `SortzExtensions`; the span API is provided by `Krynetic.Sortz.Sortz`.
 
 ## API
 
 | API | Description |
 |---|---|
-| `list.SortNext(comparer = null)` | Sorts a `List<T>` in place. |
-| `Sorter.Sort<T>(Span<T> values, IComparer<T>? comparer = null)` | Sorts a span in place, including array slices and stack-allocated buffers. |
+| `list.Sortz(comparer = null)` | Sorts a `List<T>` in place. |
+| `Sortz.Sort<T>(Span<T> values, IComparer<T>? comparer = null)` | Sorts a span in place, including array slices and stack-allocated buffers. |
 
 When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized paths are selected automatically when compatible with the type, comparer, input and hardware. Arbitrary comparers use comparison-based sorting.
 
