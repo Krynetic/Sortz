@@ -8,5 +8,5 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '11.0.x'
-      - run: dotnet build Sortz.sln -c Release
-      - run: dotnet test Sortz.sln -c Release --no-build --logger "console;verbosity=detailed"
+      - run: dotnet build Krynetic.Sortz.sln -c Release
+      - run: dotnet test Krynetic.Sortz.sln -c Release --no-build --logger "console;verbosity=detailed"
