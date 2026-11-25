@@ -152,7 +152,7 @@ public class StringComparisonBenchmarks : ComparisonBenchmarks<string>
         });
 
     protected override void CeleritySort(string[] values) => StringSort.Sort(values.AsSpan());
-    protected override void HpcSort(string[] values) => values.SortMergeInPlaceAdaptive(comparer: StringComparer.Ordinal);
+    protected override void HpcSort(string[] values) => values.SortMergeInPlace(comparer: StringComparer.Ordinal);
 }
 
 public class DoubleComparisonBenchmarks : ComparisonBenchmarks<double>
