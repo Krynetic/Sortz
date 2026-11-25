@@ -1370,6 +1370,12 @@ public static partial class Sortz
         if (bits.Length < 2)
             return;
 
+        if (Vector512.IsHardwareAccelerated && bits.Length is > 32 and <= 128)
+        {
+            SimdSort.SortSmallMapped64<double>(bits);
+            return;
+        }
+
         TransformDoubleKeys(bits, false);
         try
         {

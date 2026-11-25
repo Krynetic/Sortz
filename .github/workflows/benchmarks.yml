@@ -26,6 +26,26 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
+      - name: Compare candidate with main on the same runner
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          baseline_sha=$(git rev-parse FETCH_HEAD)
+          baseline=$(mktemp -d)
+          trap 'git worktree remove --force "$baseline" || true' EXIT
+          git worktree add --detach "$baseline" "$baseline_sha"
+          # Both revisions must use one invocation per iteration and identical inputs.
+          cp Krynetic.Sortz.Benchmarks/SortBenchmarkConfig.cs "$baseline/Krynetic.Sortz.Benchmarks/SortBenchmarkConfig.cs"
+          dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+          (
+            cd "$baseline"
+            dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+            dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+          )
+          echo "Baseline: $baseline_sha; candidate: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          python3 .github/scripts/check-sortz-regressions.py "$baseline/BenchmarkDotNet.Artifacts/results" BenchmarkDotNet.Artifacts/results >> "$GITHUB_STEP_SUMMARY"
       #- uses: actions/upload-artifact@v7
       #  if: always()
       #  with:
