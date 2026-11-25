@@ -318,6 +318,9 @@ public static partial class Sortz
             return;
         }
 
+        if (count is >= 512 and <= 65535 && TryBucketInt32(values))
+            return;
+
         if (Vector512.IsHardwareAccelerated && count <= 1024)
         {
             SimdSort.SortInt32(values);
@@ -330,6 +333,109 @@ public static partial class Sortz
             SortInt32Wide(values);
         else
             SortInt32Lsd(values);
+    }
+
+    // MSD distribution into small, cache-local buckets. Distribute full keys once,
+    // then sort each bucket directly into the original destination. Reject skew before modifying the input.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static bool TryBucketInt32(Span<int> values)
+    {
+        int length = values.Length;
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 8, 13);
+        int bucketCount = 1 << width;
+        int shift = 32 - width;
+        Span<ushort> counts = stackalloc ushort[bucketCount];
+        counts.Clear();
+        ref ushort h = ref MemoryMarshal.GetReference(counts);
+        ref int source = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < length; i++)
+        {
+            uint key = (uint)Unsafe.Add(ref source, i) ^ 0x80000000u;
+            ref ushort count = ref Unsafe.Add(ref h, (int)(key >> shift));
+            if (++count > 24)
+                return false;
+        }
+
+        int total = 0;
+        for (int b = 0; b < bucketCount; b++)
+        {
+            int frequency = Unsafe.Add(ref h, b);
+            Unsafe.Add(ref h, b) = (ushort)total;
+            total += frequency;
+        }
+
+        int[]? rented = null;
+        Span<int> scratch = length <= 16384 ? stackalloc int[length] :
+            (rented = ArrayPool<int>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref int dst = ref MemoryMarshal.GetReference(scratch);
+            for (int i = 0; i < length; i++)
+            {
+                int key = Unsafe.Add(ref source, i);
+                int bucket = (int)(((uint)key ^ 0x80000000u) >> shift);
+                Unsafe.Add(ref dst, Unsafe.Add(ref h, bucket)++) = key;
+            }
+
+            int start = 0;
+            for (int b = 0; b < bucketCount; b++)
+            {
+                int end = Unsafe.Add(ref h, b);
+                int count = end - start;
+                if (count == 0) continue;
+                ref int a = ref Unsafe.Add(ref dst, start);
+                ref int output = ref Unsafe.Add(ref source, start);
+                int x = a;
+                if (count == 1)
+                    output = x;
+                else if (count == 2)
+                {
+                    int y = Unsafe.Add(ref a, 1);
+                    output = Math.Min(x, y);
+                    Unsafe.Add(ref output, 1) = Math.Max(x, y);
+                }
+                else if (count == 3)
+                {
+                    int y = Unsafe.Add(ref a, 1), z = Unsafe.Add(ref a, 2);
+                    int low = Math.Min(x, y), high = Math.Max(x, y);
+                    output = Math.Min(low, z);
+                    Unsafe.Add(ref output, 1) = Math.Max(low, Math.Min(high, z));
+                    Unsafe.Add(ref output, 2) = Math.Max(high, z);
+                }
+                else if (count == 4)
+                {
+                    int y = Unsafe.Add(ref a, 1), z = Unsafe.Add(ref a, 2), w = Unsafe.Add(ref a, 3);
+                    int l0 = Math.Min(x, y), h0 = Math.Max(x, y);
+                    int l1 = Math.Min(z, w), h1 = Math.Max(z, w);
+                    int m0 = Math.Max(l0, l1), m1 = Math.Min(h0, h1);
+                    output = Math.Min(l0, l1);
+                    Unsafe.Add(ref output, 1) = Math.Min(m0, m1);
+                    Unsafe.Add(ref output, 2) = Math.Max(m0, m1);
+                    Unsafe.Add(ref output, 3) = Math.Max(h0, h1);
+                }
+                else
+                {
+                    output = x;
+                    for (int i = 1; i < count; i++)
+                    {
+                        int key = Unsafe.Add(ref a, i);
+                        int j = i;
+                        while (j > 0 && Unsafe.Add(ref output, j - 1) > key)
+                        {
+                            Unsafe.Add(ref output, j) = Unsafe.Add(ref output, j - 1);
+                            j--;
+                        }
+                        Unsafe.Add(ref output, j) = key;
+                    }
+                }
+                start = end;
+            }
+            return true;
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<int>.Shared.Return(rented);
+        }
     }
 
     // Find the next adjacent equal prefix without visiting each distinct key
