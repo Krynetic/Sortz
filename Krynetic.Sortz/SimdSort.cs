@@ -327,70 +327,70 @@ internal static class SimdSort
     private static void Sort128UInt64(Span<ulong> values)
     {
         ref ulong data = ref MemoryMarshal.GetReference(values);
-        var v0 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 0));
-        var v1 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 8));
-        var v2 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 16));
-        var v3 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 24));
-        var v4 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 32));
-        var v5 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 40));
-        var v6 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 48));
-        var v7 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 56));
-        var v8 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 64));
-        var v9 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 72));
-        var v10 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 80));
-        var v11 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 88));
-        var v12 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 96));
-        var v13 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 104));
-        var v14 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 112));
-        var v15 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 120));
+        var v0 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 0));
+        var v1 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 8));
+        var v2 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 16));
+        var v3 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 24));
+        var v4 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 32));
+        var v5 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 40));
+        var v6 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 48));
+        var v7 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 56));
+        var v8 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 64));
+        var v9 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 72));
+        var v10 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 80));
+        var v11 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 88));
+        var v12 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 96));
+        var v13 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 104));
+        var v14 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 112));
+        var v15 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 120));
         var r2_0 = Vector512.Shuffle(v1, ReverseUInt64);
         var h2_0 = Vector512.Max(v0, r2_0);
         v0 = Vector512.Min(v0, r2_0);
         v1 = h2_0;
-        v0 = MergeVectorUInt64(v0);
-        v1 = MergeVectorUInt64(v1);
+        v0 = MergeVectorUInt64Legacy(v0);
+        v1 = MergeVectorUInt64Legacy(v1);
         var r2_2 = Vector512.Shuffle(v3, ReverseUInt64);
         var h2_2 = Vector512.Max(v2, r2_2);
         v2 = Vector512.Min(v2, r2_2);
         v3 = h2_2;
-        v2 = MergeVectorUInt64(v2);
-        v3 = MergeVectorUInt64(v3);
+        v2 = MergeVectorUInt64Legacy(v2);
+        v3 = MergeVectorUInt64Legacy(v3);
         var r2_4 = Vector512.Shuffle(v5, ReverseUInt64);
         var h2_4 = Vector512.Max(v4, r2_4);
         v4 = Vector512.Min(v4, r2_4);
         v5 = h2_4;
-        v4 = MergeVectorUInt64(v4);
-        v5 = MergeVectorUInt64(v5);
+        v4 = MergeVectorUInt64Legacy(v4);
+        v5 = MergeVectorUInt64Legacy(v5);
         var r2_6 = Vector512.Shuffle(v7, ReverseUInt64);
         var h2_6 = Vector512.Max(v6, r2_6);
         v6 = Vector512.Min(v6, r2_6);
         v7 = h2_6;
-        v6 = MergeVectorUInt64(v6);
-        v7 = MergeVectorUInt64(v7);
+        v6 = MergeVectorUInt64Legacy(v6);
+        v7 = MergeVectorUInt64Legacy(v7);
         var r2_8 = Vector512.Shuffle(v9, ReverseUInt64);
         var h2_8 = Vector512.Max(v8, r2_8);
         v8 = Vector512.Min(v8, r2_8);
         v9 = h2_8;
-        v8 = MergeVectorUInt64(v8);
-        v9 = MergeVectorUInt64(v9);
+        v8 = MergeVectorUInt64Legacy(v8);
+        v9 = MergeVectorUInt64Legacy(v9);
         var r2_10 = Vector512.Shuffle(v11, ReverseUInt64);
         var h2_10 = Vector512.Max(v10, r2_10);
         v10 = Vector512.Min(v10, r2_10);
         v11 = h2_10;
-        v10 = MergeVectorUInt64(v10);
-        v11 = MergeVectorUInt64(v11);
+        v10 = MergeVectorUInt64Legacy(v10);
+        v11 = MergeVectorUInt64Legacy(v11);
         var r2_12 = Vector512.Shuffle(v13, ReverseUInt64);
         var h2_12 = Vector512.Max(v12, r2_12);
         v12 = Vector512.Min(v12, r2_12);
         v13 = h2_12;
-        v12 = MergeVectorUInt64(v12);
-        v13 = MergeVectorUInt64(v13);
+        v12 = MergeVectorUInt64Legacy(v12);
+        v13 = MergeVectorUInt64Legacy(v13);
         var r2_14 = Vector512.Shuffle(v15, ReverseUInt64);
         var h2_14 = Vector512.Max(v14, r2_14);
         v14 = Vector512.Min(v14, r2_14);
         v15 = h2_14;
-        v14 = MergeVectorUInt64(v14);
-        v15 = MergeVectorUInt64(v15);
+        v14 = MergeVectorUInt64Legacy(v14);
+        v15 = MergeVectorUInt64Legacy(v15);
         var r4_0 = Vector512.Shuffle(v3, ReverseUInt64);
         var h4_0 = Vector512.Max(v0, r4_0);
         v0 = Vector512.Min(v0, r4_0);
@@ -405,10 +405,10 @@ internal static class SimdSort
         var t4_1_2 = Vector512.Max(v2, v3);
         v2 = Vector512.Min(v2, v3);
         v3 = t4_1_2;
-        v0 = MergeVectorUInt64(v0);
-        v1 = MergeVectorUInt64(v1);
-        v2 = MergeVectorUInt64(v2);
-        v3 = MergeVectorUInt64(v3);
+        v0 = MergeVectorUInt64Legacy(v0);
+        v1 = MergeVectorUInt64Legacy(v1);
+        v2 = MergeVectorUInt64Legacy(v2);
+        v3 = MergeVectorUInt64Legacy(v3);
         var r4_4 = Vector512.Shuffle(v7, ReverseUInt64);
         var h4_4 = Vector512.Max(v4, r4_4);
         v4 = Vector512.Min(v4, r4_4);
@@ -423,10 +423,10 @@ internal static class SimdSort
         var t4_1_6 = Vector512.Max(v6, v7);
         v6 = Vector512.Min(v6, v7);
         v7 = t4_1_6;
-        v4 = MergeVectorUInt64(v4);
-        v5 = MergeVectorUInt64(v5);
-        v6 = MergeVectorUInt64(v6);
-        v7 = MergeVectorUInt64(v7);
+        v4 = MergeVectorUInt64Legacy(v4);
+        v5 = MergeVectorUInt64Legacy(v5);
+        v6 = MergeVectorUInt64Legacy(v6);
+        v7 = MergeVectorUInt64Legacy(v7);
         var r4_8 = Vector512.Shuffle(v11, ReverseUInt64);
         var h4_8 = Vector512.Max(v8, r4_8);
         v8 = Vector512.Min(v8, r4_8);
@@ -441,10 +441,10 @@ internal static class SimdSort
         var t4_1_10 = Vector512.Max(v10, v11);
         v10 = Vector512.Min(v10, v11);
         v11 = t4_1_10;
-        v8 = MergeVectorUInt64(v8);
-        v9 = MergeVectorUInt64(v9);
-        v10 = MergeVectorUInt64(v10);
-        v11 = MergeVectorUInt64(v11);
+        v8 = MergeVectorUInt64Legacy(v8);
+        v9 = MergeVectorUInt64Legacy(v9);
+        v10 = MergeVectorUInt64Legacy(v10);
+        v11 = MergeVectorUInt64Legacy(v11);
         var r4_12 = Vector512.Shuffle(v15, ReverseUInt64);
         var h4_12 = Vector512.Max(v12, r4_12);
         v12 = Vector512.Min(v12, r4_12);
@@ -459,10 +459,10 @@ internal static class SimdSort
         var t4_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t4_1_14;
-        v12 = MergeVectorUInt64(v12);
-        v13 = MergeVectorUInt64(v13);
-        v14 = MergeVectorUInt64(v14);
-        v15 = MergeVectorUInt64(v15);
+        v12 = MergeVectorUInt64Legacy(v12);
+        v13 = MergeVectorUInt64Legacy(v13);
+        v14 = MergeVectorUInt64Legacy(v14);
+        v15 = MergeVectorUInt64Legacy(v15);
         var r8_0 = Vector512.Shuffle(v7, ReverseUInt64);
         var h8_0 = Vector512.Max(v0, r8_0);
         v0 = Vector512.Min(v0, r8_0);
@@ -503,14 +503,14 @@ internal static class SimdSort
         var t8_1_6 = Vector512.Max(v6, v7);
         v6 = Vector512.Min(v6, v7);
         v7 = t8_1_6;
-        v0 = MergeVectorUInt64(v0);
-        v1 = MergeVectorUInt64(v1);
-        v2 = MergeVectorUInt64(v2);
-        v3 = MergeVectorUInt64(v3);
-        v4 = MergeVectorUInt64(v4);
-        v5 = MergeVectorUInt64(v5);
-        v6 = MergeVectorUInt64(v6);
-        v7 = MergeVectorUInt64(v7);
+        v0 = MergeVectorUInt64Legacy(v0);
+        v1 = MergeVectorUInt64Legacy(v1);
+        v2 = MergeVectorUInt64Legacy(v2);
+        v3 = MergeVectorUInt64Legacy(v3);
+        v4 = MergeVectorUInt64Legacy(v4);
+        v5 = MergeVectorUInt64Legacy(v5);
+        v6 = MergeVectorUInt64Legacy(v6);
+        v7 = MergeVectorUInt64Legacy(v7);
         var r8_8 = Vector512.Shuffle(v15, ReverseUInt64);
         var h8_8 = Vector512.Max(v8, r8_8);
         v8 = Vector512.Min(v8, r8_8);
@@ -551,14 +551,14 @@ internal static class SimdSort
         var t8_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t8_1_14;
-        v8 = MergeVectorUInt64(v8);
-        v9 = MergeVectorUInt64(v9);
-        v10 = MergeVectorUInt64(v10);
-        v11 = MergeVectorUInt64(v11);
-        v12 = MergeVectorUInt64(v12);
-        v13 = MergeVectorUInt64(v13);
-        v14 = MergeVectorUInt64(v14);
-        v15 = MergeVectorUInt64(v15);
+        v8 = MergeVectorUInt64Legacy(v8);
+        v9 = MergeVectorUInt64Legacy(v9);
+        v10 = MergeVectorUInt64Legacy(v10);
+        v11 = MergeVectorUInt64Legacy(v11);
+        v12 = MergeVectorUInt64Legacy(v12);
+        v13 = MergeVectorUInt64Legacy(v13);
+        v14 = MergeVectorUInt64Legacy(v14);
+        v15 = MergeVectorUInt64Legacy(v15);
         var r16_0 = Vector512.Shuffle(v15, ReverseUInt64);
         var h16_0 = Vector512.Max(v0, r16_0);
         v0 = Vector512.Min(v0, r16_0);
@@ -663,22 +663,22 @@ internal static class SimdSort
         var t16_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t16_1_14;
-        v0 = MergeVectorUInt64(v0);
-        v1 = MergeVectorUInt64(v1);
-        v2 = MergeVectorUInt64(v2);
-        v3 = MergeVectorUInt64(v3);
-        v4 = MergeVectorUInt64(v4);
-        v5 = MergeVectorUInt64(v5);
-        v6 = MergeVectorUInt64(v6);
-        v7 = MergeVectorUInt64(v7);
-        v8 = MergeVectorUInt64(v8);
-        v9 = MergeVectorUInt64(v9);
-        v10 = MergeVectorUInt64(v10);
-        v11 = MergeVectorUInt64(v11);
-        v12 = MergeVectorUInt64(v12);
-        v13 = MergeVectorUInt64(v13);
-        v14 = MergeVectorUInt64(v14);
-        v15 = MergeVectorUInt64(v15);
+        v0 = MergeVectorUInt64Legacy(v0);
+        v1 = MergeVectorUInt64Legacy(v1);
+        v2 = MergeVectorUInt64Legacy(v2);
+        v3 = MergeVectorUInt64Legacy(v3);
+        v4 = MergeVectorUInt64Legacy(v4);
+        v5 = MergeVectorUInt64Legacy(v5);
+        v6 = MergeVectorUInt64Legacy(v6);
+        v7 = MergeVectorUInt64Legacy(v7);
+        v8 = MergeVectorUInt64Legacy(v8);
+        v9 = MergeVectorUInt64Legacy(v9);
+        v10 = MergeVectorUInt64Legacy(v10);
+        v11 = MergeVectorUInt64Legacy(v11);
+        v12 = MergeVectorUInt64Legacy(v12);
+        v13 = MergeVectorUInt64Legacy(v13);
+        v14 = MergeVectorUInt64Legacy(v14);
+        v15 = MergeVectorUInt64Legacy(v15);
         v0.StoreUnsafe(ref data, 0);
         v1.StoreUnsafe(ref data, 8);
         v2.StoreUnsafe(ref data, 16);
@@ -935,6 +935,34 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ulong> ExchangeUInt64(Vector512<ulong> v, Vector512<ulong> other, Vector512<ulong> mask)
     {
+        return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector512<ulong> SortVectorUInt64Legacy(Vector512<ulong> v)
+    {
+        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt642_1);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt644_2);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt644_1);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt648_1);
+        return v;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector512<ulong> MergeVectorUInt64Legacy(Vector512<ulong> v)
+    {
+        v = ExchangeUInt64Legacy(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt648_1);
+        return v;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector512<ulong> ExchangeUInt64Legacy(Vector512<ulong> v, Vector512<ulong> shuffle, Vector512<ulong> mask)
+    {
+        var other = Vector512.Shuffle(v, shuffle);
         return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
     }
 

@@ -73,6 +73,12 @@ public static partial class Sortz
             return;
         }
 
+        if (Avx512Vbmi.IsSupported && Avx512BW.IsSupported && values.Length is 64 or 128)
+        {
+            PrimitiveSimdSort.SortBytes(values, (byte)sign);
+            return;
+        }
+
         if (Avx512BW.IsSupported && values.Length <= 256)
         {
             Span<ushort> keys = stackalloc ushort[values.Length];

@@ -49,6 +49,8 @@ public sealed class VectorMergeBoundaryTests
             }
 
             Check(input);
+            Check(Array.ConvertAll(input, x => unchecked((byte)x)));
+            Check(Array.ConvertAll(input, x => unchecked((sbyte)x)));
             Check(wide);
             Check(narrow);
             Check(Array.ConvertAll(input, x => unchecked((uint)x)));
