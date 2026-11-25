@@ -65,6 +65,40 @@ public sealed class AdaptiveCompetitorTests
         Check(source.Select(x => (double)x).ToArray());
     }
 
+    [Theory]
+    [InlineData(128)]
+    [InlineData(1024)]
+    [InlineData(10000)]
+    [InlineData(100003)]
+    public void ConsecutiveHighOutliersAndSparseSwaps(int size)
+    {
+        var random = new Random(size);
+        for (int pattern = 0; pattern < 6; pattern++)
+        {
+            long[] input = Enumerable.Range(0, size).Select(i => (long)i).ToArray();
+            if (pattern < 3)
+            {
+                // Two to four increasing high outliers followed by a normal run.
+                int width = pattern + 2;
+                for (int i = 0; i < width; i++)
+                    (input[19 + i], input[size - width - i - 1]) =
+                        (input[size - width - i - 1], input[19 + i]);
+                Array.Sort(input, 19, width);
+            }
+            else
+            {
+                for (int i = 0; i < size; i += 23 + pattern * 4)
+                {
+                    int j = random.Next(size);
+                    (input[i], input[j]) = (input[j], input[i]);
+                }
+            }
+            Check(input);
+            Check(input.Select(x => (int)x).ToArray());
+            Check(input.Select(x => (double)x).ToArray());
+        }
+    }
+
     [Fact]
     public void DoubleSpecialValuesPreserveAllBits()
     {

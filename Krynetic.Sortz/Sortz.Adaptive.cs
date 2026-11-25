@@ -96,14 +96,14 @@ public static partial class Sortz
                 var b = Vector512.LoadUnsafe(ref data, (nuint)i);
                 ulong ordered = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b));
                 inversions += width - BitOperations.PopCount(ordered);
-                if (inversions > 3) return false;
+                if (inversions > 4) return false;
             }
         }
         else
         {
             for (int i = 1; i <= 16; i++)
                 if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                    ++inversions > 3)
+                    ++inversions > 4)
                     return false;
         }
 
@@ -117,7 +117,7 @@ public static partial class Sortz
                 inversions = 0;
                 for (int i = start; i < start + 8; i++)
                     if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                        ++inversions > 2)
+                        ++inversions > 3)
                         return false;
             }
         }
@@ -160,20 +160,33 @@ public static partial class Sortz
                     continue;
                 }
 
-                if (dropped == capacity)
+                // An increasing cluster of high outliers can poison the
+                // monotonic prefix. Remove a short suffix if doing so admits
+                // the current value; otherwise it is probably a low outlier.
+                const int Lookback = 8;
+                int cut = kept - 1;
+                int limit = Math.Max(0, kept - Lookback);
+                while (cut > limit && Unsafe.Add(ref data, cut - 1).CompareTo(current) > 0)
+                    cut--;
+
+                bool removeSuffix = cut == 0 ||
+                    Unsafe.Add(ref data, cut - 1).CompareTo(current) <= 0;
+                int removeCount = removeSuffix ? kept - cut : 1;
+                if (removeCount > capacity - dropped)
                 {
-                    // The unconsumed suffix may overlap the destination.
+                    // Nothing from the current read has been modified yet.
+                    // Restore the full permutation before the radix fallback.
                     values[read..].CopyTo(values[kept..]);
                     rejected[..dropped].CopyTo(values[(length - dropped)..]);
                     return false;
                 }
 
-                // Remove a high outlier rather than rejecting the entire run
-                // after it, whenever the previous kept element permits it.
-                if (kept == 1 || Unsafe.Add(ref data, kept - 2).CompareTo(current) <= 0)
+                if (removeSuffix)
                 {
-                    rejected[dropped++] = previous;
-                    Unsafe.Add(ref data, kept - 1) = current;
+                    values.Slice(cut, removeCount).CopyTo(rejected.Slice(dropped, removeCount));
+                    dropped += removeCount;
+                    Unsafe.Add(ref data, cut) = current;
+                    kept = cut + 1;
                 }
                 else
                 {
