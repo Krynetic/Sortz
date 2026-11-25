@@ -91,6 +91,21 @@ public static partial class Sortz
                 return false;
         }
 
+        // Reject locally ordered prefixes followed by globally random data.
+        if (length >= 256)
+        {
+            int stride = length >> 2;
+            for (int block = 1; block <= 3; block++)
+            {
+                int start = stride * block;
+                inversions = 0;
+                for (int i = start; i < start + 8; i++)
+                    if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                        ++inversions > 2)
+                        return false;
+            }
+        }
+
         int capacity = length >> 3;
         T[]? rented = null;
         Span<T> rejected = capacity <= 512 ? stackalloc T[capacity] :
@@ -136,8 +151,36 @@ public static partial class Sortz
             while (right >= 0)
             {
                 T key = rejected[right--];
-                while (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                int moved = 0;
+                while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                    moved++;
+                }
+
+                // Gallop across long runs, then move them with one memmove.
+                if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                {
+                    int hi = left + 1, step = 1;
+                    while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                    {
+                        if (step > left / 2) { step = left + 1; break; }
+                        step <<= 1;
+                    }
+
+                    int lo = Math.Max(0, left - step + 1);
+                    while (lo < hi)
+                    {
+                        int mid = lo + ((hi - lo) >> 1);
+                        if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                        else hi = mid;
+                    }
+
+                    int count = left - lo + 1;
+                    values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
+                    output -= count;
+                    left -= count;
+                }
                 Unsafe.Add(ref data, output--) = key;
             }
             return true;
