@@ -6,6 +6,7 @@ Maintainer documentation. These commands are manual; the repository does not aut
 ```sh
 dotnet build Krynetic.Sortz.sln -c Release
 dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
+dotnet test Krynetic.Sortz.Compatibility.Tests/Krynetic.Sortz.Compatibility.Tests.csproj -c Release
 ```
 
 ## Create the NuGet packages
@@ -22,7 +23,7 @@ The default package version is defined in the library project. Override it for a
 dotnet pack Krynetic.Sortz/Krynetic.Sortz.csproj -c Release -p:Version=0.1.0 -o artifacts/nuget
 ```
 
-This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. Tests and benchmarks are not packed.
+This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. The NuGet package contains library assemblies under `lib/netstandard2.1/`, `lib/net9.0/` and `lib/net11.0/`. Tests and benchmarks are not packed. Use the .NET 11 SDK with the .NET 9 runtime installed to run the complete test matrix.
 
 After choosing a license, verifying availability or ownership of the package ID, and obtaining a NuGet.org API key, publish the package manually:
 

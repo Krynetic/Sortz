@@ -14,9 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build comparison project
-        run: dotnet build Krynetic.Sortz.Comparison -c Release
+        run: dotnet build Krynetic.Sortz.Comparison -c Release -f net11.0
       - name: Run comparison benchmarks
-        run: dotnet run -c Release --no-build --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+        run: dotnet run -c Release -f net11.0 --no-build --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
       - name: Publish results
         if: always()
         run: |

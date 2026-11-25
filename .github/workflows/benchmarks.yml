@@ -12,8 +12,8 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           allow-preview: true
-      - run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
-      - run: dotnet run -c Release --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+      - run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release -f net11.0
+      - run: dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
       - name: Publish results
         if: always()
         run: |
