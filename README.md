@@ -4,37 +4,66 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware
 
 ## Performance
 
-**Up to 242.29× faster than `List<T>.Sort()`** in the measured random-input benchmarks. The geometric mean speedup across all 63 cases is **5.35×**, with 62 cases faster than the default sorter and 14 cases at least 10× faster.
+### The fastest overall .NET sorting library in our benchmark suite
+
+**Sortz ranks #1 overall by workload wins** against the .NET built-in sorter, YamSort, Celerity.Sorting and HPCsharp in [Sorting library comparison #6](https://github.com/Krynetic/Sortz/actions/runs/45609922336): **58 of 64 workloads (90.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
+
+| Competitor | Sortz wins | Geometric mean speedup | Peak speedup |
+|---|---:|---:|---:|
+| .NET List<T>.Sort() | 59/64 | 4.16× | 14.38× |
+| YamSort 1.1.0 | 63/64 | 4.56× | 50.38× |
+| Celerity.Sorting 3.6.0 | 63/64 | 5.26× | 23.01× |
+| HPCsharp 3.19.8 | 64/64 | 7.48× | 33.77× |
+
+| Input pattern | Fastest of five | vs .NET | vs YamSort | vs Celerity | vs HPCsharp |
+|---|---:|---:|---:|---:|---:|
+| Random | 15/16 | 4.85× | 9.03× | 2.86× | 4.55× |
+| Ascending | 15/16 | 5.34× | 2.45× | 8.53× | 14.23× |
+| Descending | 16/16 | 7.42× | 7.20× | 11.39× | 14.44× |
+| NearlySorted | 12/16 | 1.56× | 2.71× | 2.75× | 3.34× |
+
+The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (320 timed benchmark cases). Sortz wins all descending workloads and beats every third-party competitor on random inputs. Results include losses, not just selected wins: .NET wins five workloads and Celerity wins one. This is a measured suite-wide ranking, not a universal fastest-library guarantee.
+
+### Broader type coverage — random inputs
+
+**Up to 222.04× faster than `List<T>.Sort()`**, with a **5.61× geometric mean speedup**, 63/63 faster cases and 5/63 cases at least 10× faster in [Sorting benchmarks #130](https://github.com/Krynetic/Sortz/actions/runs/45608014802). All 648 tests passed in that workflow.
 
 | Type | 128 elements | 1,024 elements | 10,000 elements |
 |---|---:|---:|---:|
-| bool | 26.64× | 83.84× | 242.29× |
-| byte | 3.80× | 8.31× | 41.45× |
-| sbyte | 3.13× | 7.98× | 41.11× |
-| char | 4.38× | 3.45× | 14.58× |
-| short | 3.66× | 3.42× | 14.54× |
-| ushort | 3.93× | 2.46× | 13.95× |
-| int | 2.72× | 2.82× | 7.09× |
-| uint | 2.36× | 2.84× | 7.16× |
-| long | 2.66× | 2.41× | 7.93× |
-| ulong | 2.93× | 2.21× | 8.05× |
-| Int128 | 2.00× | 2.76× | 8.18× |
-| UInt128 | 1.89× | 2.66× | 8.06× |
-| nint | 2.55× | 2.10× | 7.77× |
-| nuint | 3.10× | 2.26× | 7.87× |
-| Half | 4.85× | 3.35× | 19.42× |
-| float | 3.06× | 3.34× | 10.08× |
-| double | 3.27× | 2.60× | 10.65× |
-| decimal | 2.11× | 2.76× | 7.77× |
-| string (ordinal) | 3.99× | 6.27× | 12.64× |
-| string (culture) | 7.77× | 11.83× | 15.10× |
-| object benchmark | 1.02× | 0.97× | 1.15× |
+| bool | 64.28× | 171.02× | 222.04× |
+| byte | 1.48× | 3.59× | 9.18× |
+| sbyte | 1.37× | 3.69× | 10.31× |
+| char | 3.15× | 4.77× | 9.90× |
+| short | 2.60× | 4.38× | 9.59× |
+| ushort | 2.84× | 4.21× | 9.56× |
+| int | 4.21× | 5.99× | 8.60× |
+| uint | 3.45× | 4.93× | 7.03× |
+| long | 3.55× | 4.56× | 7.19× |
+| ulong | 3.62× | 4.52× | 7.33× |
+| Int128 | 3.10× | 4.52× | 7.56× |
+| UInt128 | 2.88× | 4.39× | 7.48× |
+| nint | 3.70× | 4.73× | 7.51× |
+| nuint | 3.88× | 4.93× | 7.66× |
+| Half | 2.90× | 4.00× | 7.96× |
+| float | 3.02× | 3.94× | 6.97× |
+| double | 2.94× | 3.61× | 7.01× |
+| decimal | 3.78× | 6.24× | 10.26× |
+| string (ordinal) | 3.42× | 4.52× | 5.38× |
+| string (culture) | 3.69× | 6.25× | 9.15× |
+| object benchmark | 4.01× | 4.60× | 4.46× |
 
-Speedup = DefaultListSort mean / SortzSort mean. Values above 1× favor Sortz. These are measured results, not guaranteed speedups for every input or machine.
+Speedups are competitor mean / Sortz mean (higher is better); geometric means weight each workload equally. Both workflows ran on AMD Ryzen 9 7900X, Ubuntu 24.04.5, .NET 11, BenchmarkDotNet 0.16.0-preview.2. The comparison uses 20 warmups, 40 measured iterations and 16 independent sorts per invocation, with source restoration outside measured work. Results are hardware- and workload-dependent.
 
-Source: [benchmark workflow](https://github.com/Krynetic/Sortz/actions/runs/45511248356), commit [284d315](https://github.com/Krynetic/Sortz/commit/284d315b3ba71049bd74524efa115c11c3845eb9), AMD Ryzen 9 7900X, Ubuntu 24.04, .NET 11, BenchmarkDotNet 0.16.0-preview.2. All 648 tests passed.
+See the [full competitor timings and allocation results](docs/benchmarks.md#competitor-comparison) and [complete primitive benchmark timings](docs/benchmarks.md).
 
-See the [complete benchmark timings](docs/benchmarks.md) for the measured means.
+### Performance engineering
+
+- Adaptive, type- and input-aware dispatch: specialized numeric paths, generic comparison fallbacks and ordered-input detection.
+- SIMD sorting networks and runtime hardware detection, including AVX-512 on supported x64 processors.
+- Counting, bucket and radix sorting for suitable primitive types; compact projected keys and collision handling for wider values.
+- Specialized ordinal string prefix sorting and culture-aware sort-key caching within a sort.
+- In-place list and span APIs; stack-allocated scratch buffers for smaller inputs and pooled arrays for larger workloads. Zero reported managed allocations in the comparison does not mean zero scratch memory or allocation-free cold starts.
+- No runtime package dependencies.
 
 ## Installation
 
@@ -145,6 +174,12 @@ From the repository root, using the .NET 11 SDK:
 dotnet run -c Release --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
 ```
 
-This runs the sorting comparison suite. To discover available benchmarks, select individual types, or locate the reports, see [benchmark documentation](docs/benchmarks.md).
+For the direct competitor comparison:
+
+```sh
+dotnet run -c Release --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+```
+
+To discover available benchmarks, select individual types, or locate reports, see [benchmark documentation](docs/benchmarks.md).
 
 Maintainers: see [packaging and publishing](docs/publishing.md).
