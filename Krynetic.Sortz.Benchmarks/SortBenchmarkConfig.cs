@@ -6,7 +6,7 @@ namespace Krynetic.Sortz.Benchmarks;
 
 public sealed class SortBenchmarkConfig : ManualConfig
 {
-    public const int BatchSize = 16;
+    public const int BatchSize = 32;
 
     public SortBenchmarkConfig()
     {
@@ -14,10 +14,10 @@ public sealed class SortBenchmarkConfig : ManualConfig
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(20)
-            .WithIterationCount(40)
+            .WithWarmupCount(40)
+            .WithIterationCount(80)
             .WithLaunchCount(1)
             .WithInvocationCount(1)
-            .WithUnrollFactor(1));
+        );
     }
 }
