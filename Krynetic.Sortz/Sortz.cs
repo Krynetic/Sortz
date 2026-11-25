@@ -318,7 +318,7 @@ public static partial class Sortz
             return;
         }
 
-        if (count is >= 512 and <= 65535 && TryBucketInt32(values))
+        if (count is >= 4096 and <= 65535 && TryBucketInt32(values))
             return;
 
         if (Vector512.IsHardwareAccelerated && count <= 1024)
@@ -341,7 +341,7 @@ public static partial class Sortz
     private static bool TryBucketInt32(Span<int> values)
     {
         int length = values.Length;
-        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 8, 13);
+        int width = Math.Clamp(BitOperations.Log2((uint)length), 10, 14);
         int bucketCount = 1 << width;
         int shift = 32 - width;
         Span<ushort> counts = stackalloc ushort[bucketCount];
@@ -351,15 +351,14 @@ public static partial class Sortz
         for (int i = 0; i < length; i++)
         {
             uint key = (uint)Unsafe.Add(ref source, i) ^ 0x80000000u;
-            ref ushort count = ref Unsafe.Add(ref h, (int)(key >> shift));
-            if (++count > 24)
-                return false;
+            Unsafe.Add(ref h, (int)(key >> shift))++;
         }
 
         int total = 0;
         for (int b = 0; b < bucketCount; b++)
         {
             int frequency = Unsafe.Add(ref h, b);
+            if (frequency > 24) return false;
             Unsafe.Add(ref h, b) = (ushort)total;
             total += frequency;
         }
@@ -370,12 +369,9 @@ public static partial class Sortz
         try
         {
             ref int dst = ref MemoryMarshal.GetReference(scratch);
-            for (int i = 0; i < length; i++)
-            {
-                int key = Unsafe.Add(ref source, i);
-                int bucket = (int)(((uint)key ^ 0x80000000u) >> shift);
-                Unsafe.Add(ref dst, Unsafe.Add(ref h, bucket)++) = key;
-            }
+            // Reuse the stable four-way scatter already used by projected keys.
+            ScatterProjectedCompact(values, scratch, counts, shift,
+                (uint)(bucketCount - 1), (uint)(bucketCount >> 1));
 
             int start = 0;
             for (int b = 0; b < bucketCount; b++)
