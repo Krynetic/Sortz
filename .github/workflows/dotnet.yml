@@ -2,9 +2,6 @@ name: .NET 11 CI
 on:
   workflow_dispatch:
   push:
-concurrency:
-  group: sortz-runner-exclusive
-  cancel-in-progress: false
 jobs:
   test:
     runs-on: self-hosted
