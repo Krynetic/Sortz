@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Loggers;
 
-namespace Sortz.Benchmarks;
+namespace Krynetic.Sortz.Benchmarks;
 
 // Replace the default console logger by ID/priority; the full log file and
 // exported benchmark reports remain available.

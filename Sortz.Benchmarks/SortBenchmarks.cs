@@ -1,8 +1,8 @@
 using BenchmarkDotNet.Attributes;
-using Sortz.Tests;
+using Krynetic.Sortz.Tests;
 using System.Runtime.InteropServices;
 
-namespace Sortz.Benchmarks;
+namespace Krynetic.Sortz.Benchmarks;
 
 public enum InputPattern
 {
@@ -67,6 +67,6 @@ public class SortBenchmarks
     [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
     public void SortzNextSort()
     {
-        foreach (var list in lists) SortzNext.Sort(CollectionsMarshal.AsSpan(list));
+        foreach (var list in lists) Sorter.Sort(CollectionsMarshal.AsSpan(list));
     }
 }

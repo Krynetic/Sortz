@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <RootNamespace>Krynetic.Sortz</RootNamespace>
+    <AssemblyName>Krynetic.Sortz</AssemblyName>
     <OutputType>Library</OutputType>
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

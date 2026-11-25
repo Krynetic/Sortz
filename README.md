@@ -1,4 +1,4 @@
-# Sortz
+# Krynetic.Sortz
 
 High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware-accelerated sorting networks, radix sorting and specialized primitive algorithms, with comparison-based fallbacks for other types and custom comparers.
 
@@ -30,7 +30,7 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware
 | string (culture) | 7.77× | 11.83× | 15.10× |
 | object benchmark | 1.02× | 0.97× | 1.15× |
 
-Speedup = DefaultListSort mean / SortzNext mean. Values above 1× favor Sortz. These are measured results, not guaranteed speedups for every input or machine.
+Speedup = DefaultListSort mean / SortzNextSort mean (historical benchmark method name). Values above 1× favor Sortz. These are measured results, not guaranteed speedups for every input or machine.
 
 Source: [benchmark workflow](https://github.com/Krynetic/Sortz/actions/runs/45511248356), commit [284d315](https://github.com/Krynetic/Sortz/commit/284d315b3ba71049bd74524efa115c11c3845eb9), AMD Ryzen 9 7900X, Ubuntu 24.04, .NET 11, BenchmarkDotNet 0.16.0-preview.2. All 648 tests passed.
 
@@ -51,7 +51,7 @@ Or reference the library project directly when working from the repository.
 ## Quick start
 
 ```csharp
-using Sortz;
+using Krynetic.Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
 values.SortNext();
@@ -62,22 +62,22 @@ values.SortNext();
 ### Sort arrays and spans
 
 ```csharp
-using Sortz;
+using Krynetic.Sortz;
 
 int[] numbers = [9, 3, 7, 1];
-SortzNext.Sort(numbers.AsSpan());
+Sorter.Sort(numbers.AsSpan());
 
 Span<int> buffer = stackalloc int[] { 8, 4, 2, 6 };
-SortzNext.Sort(buffer);
+Sorter.Sort(buffer);
 
 // Sort only a range of an array.
-SortzNext.Sort(numbers.AsSpan(1, 2));
+Sorter.Sort(numbers.AsSpan(1, 2));
 ```
 
 ### Custom comparers and descending order
 
 ```csharp
-using Sortz;
+using Krynetic.Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
 values.SortNext(Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
@@ -86,7 +86,7 @@ values.SortNext(Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
 ### Strings
 
 ```csharp
-using Sortz;
+using Krynetic.Sortz;
 
 List<string> names = ["Charlie", "Alice", "Bob"];
 
@@ -103,7 +103,7 @@ names.SortNext(StringComparer.OrdinalIgnoreCase);
 ### Custom types
 
 ```csharp
-using Sortz;
+using Krynetic.Sortz;
 
 List<Product> products = [new("Keyboard", 129), new("Mouse", 49)];
 products.SortNext(Comparer<Product>.Create(static (a, b) => a.Price.CompareTo(b.Price)));
@@ -116,7 +116,7 @@ record Product(string Name, decimal Price);
 | API | Description |
 |---|---|
 | `list.SortNext(comparer = null)` | Sorts a `List<T>` in place. |
-| `SortzNext.Sort<T>(Span<T> values, IComparer<T>? comparer = null)` | Sorts a span in place, including array slices and stack-allocated buffers. |
+| `Sorter.Sort<T>(Span<T> values, IComparer<T>? comparer = null)` | Sorts a span in place, including array slices and stack-allocated buffers. |
 
 When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized paths are selected automatically when compatible with the type, comparer, input and hardware. Arbitrary comparers use comparison-based sorting.
 

@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class UInt64BucketTests
 {
@@ -26,13 +26,13 @@ public sealed class UInt64BucketTests
             }).ToArray();
             var expected = (ulong[])values.Clone();
             Array.Sort(expected);
-            SortzNext.Sort(values.AsSpan());
+            Sorter.Sort(values.AsSpan());
             Assert.Equal(expected, values);
 
             long[] signed = values.Select(x => unchecked((long)x)).Reverse().ToArray();
             var sorted = (long[])signed.Clone();
             Array.Sort(sorted);
-            SortzNext.Sort(signed.AsSpan());
+            Sorter.Sort(signed.AsSpan());
             Assert.Equal(sorted, signed);
         }
     }

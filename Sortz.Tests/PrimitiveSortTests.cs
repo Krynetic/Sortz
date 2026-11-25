@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class PrimitiveSortTests
 {
@@ -112,7 +112,7 @@ public sealed class PrimitiveSortTests
         Array.Sort(expected, comparer);
 
         var actual = (T[])source.Clone();
-        SortzNext.Sort(actual.AsSpan());
+        Sorter.Sort(actual.AsSpan());
         AssertOrdered<T>(expected, actual, comparer);
         AssertSameBits<T>(source, actual);
 
@@ -122,7 +122,7 @@ public sealed class PrimitiveSortTests
         guarded[^1] = source.Length == 0 ? default : source[^1];
         source.AsSpan().CopyTo(guarded.AsSpan(1, source.Length));
         T left = guarded[0], right = guarded[^1];
-        SortzNext.Sort(guarded.AsSpan(1, source.Length), comparer);
+        Sorter.Sort(guarded.AsSpan(1, source.Length), comparer);
         Assert.Equal(left, guarded[0]);
         Assert.Equal(right, guarded[^1]);
         AssertOrdered<T>(expected, guarded.AsSpan(1, source.Length), comparer);
@@ -130,15 +130,15 @@ public sealed class PrimitiveSortTests
 
         var reverse = Comparer<T>.Create((x, y) => comparer.Compare(y, x));
         Array.Sort(expected, reverse);
-        SortzNext.Sort(actual.AsSpan(), reverse);
+        Sorter.Sort(actual.AsSpan(), reverse);
         AssertOrdered<T>(expected, actual, reverse);
         AssertSameBits<T>(source, actual);
 
         // Ordered and reverse-ordered fast paths.
-        SortzNext.Sort(actual.AsSpan());
+        Sorter.Sort(actual.AsSpan());
         Array.Reverse(expected);
         AssertOrdered<T>(expected, actual, comparer);
-        SortzNext.Sort(actual.AsSpan());
+        Sorter.Sort(actual.AsSpan());
         AssertOrdered<T>(expected, actual, comparer);
     }
 

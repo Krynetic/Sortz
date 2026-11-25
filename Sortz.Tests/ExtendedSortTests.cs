@@ -1,7 +1,7 @@
 using System.Globalization;
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class ExtendedSortTests
 {
@@ -24,7 +24,7 @@ public sealed class ExtendedSortTests
         var input = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, double>(bytes.AsSpan()).ToArray();
         Check(input);
         var actual = (double[])input.Clone();
-        SortzNext.Sort(actual.AsSpan());
+        Sorter.Sort(actual.AsSpan());
         // Even NaN payloads and signed zero representations must be preserved.
         Assert.Equal(input.Select(BitConverter.DoubleToUInt64Bits).Order(),
             actual.Select(BitConverter.DoubleToUInt64Bits).Order());

@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class ProjectedDoubleTests
 {
@@ -25,7 +25,7 @@ public sealed class ProjectedDoubleTests
             }).ToArray();
             double[] expected = (double[])values.Clone();
             Array.Sort(expected);
-            SortzNext.Sort(values.AsSpan());
+            Sorter.Sort(values.AsSpan());
             Assert.Equal(expected, values);
         }
     }

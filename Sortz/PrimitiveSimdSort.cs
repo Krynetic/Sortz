@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 
-namespace Sortz;
+namespace Krynetic.Sortz;
 
 internal static class PrimitiveSimdSort
 {

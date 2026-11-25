@@ -1,4 +1,4 @@
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 internal static class SortInputs
 {

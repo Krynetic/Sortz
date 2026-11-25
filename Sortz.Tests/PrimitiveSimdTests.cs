@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class PrimitiveSimdTests
 {
@@ -13,13 +13,13 @@ public sealed class PrimitiveSimdTests
             ushort[] values = Enumerable.Range(0, count).Select(_ => (ushort)random.Next(65536)).ToArray();
             var expected = (ushort[])values.Clone();
             Array.Sort(expected);
-            SortzNext.Sort(values.AsSpan());
+            Sorter.Sort(values.AsSpan());
             Assert.Equal(expected, values);
             if (count > 256) continue;
             var bytes = Enumerable.Range(0, count).Select(_ => (sbyte)random.Next(-128, 128)).ToArray();
             var sorted = (sbyte[])bytes.Clone();
             Array.Sort(sorted);
-            SortzNext.Sort(bytes.AsSpan());
+            Sorter.Sort(bytes.AsSpan());
             Assert.Equal(sorted, bytes);
         }
     }

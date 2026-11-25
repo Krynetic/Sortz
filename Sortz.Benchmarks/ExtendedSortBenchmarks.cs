@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using System.Runtime.InteropServices;
 
-namespace Sortz.Benchmarks;
+namespace Krynetic.Sortz.Benchmarks;
 
 public abstract class TypedSortBenchmark<T>
 {
@@ -38,7 +38,7 @@ public abstract class TypedSortBenchmark<T>
     public void SortzNextSort()
     {
         var comparer = Comparer;
-        foreach (var list in lists) SortzNext.Sort(CollectionsMarshal.AsSpan(list), comparer);
+        foreach (var list in lists) Sorter.Sort(CollectionsMarshal.AsSpan(list), comparer);
     }
 }
 

@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class CompactPrefixTests
 {
@@ -19,7 +19,7 @@ public sealed class CompactPrefixTests
                 random.Next(5).ToString()).ToArray();
         var expected = (string[])values.Clone();
         Array.Sort(expected, StringComparer.Ordinal);
-        SortzNext.Sort(values.AsSpan(), StringComparer.Ordinal);
+        Sorter.Sort(values.AsSpan(), StringComparer.Ordinal);
         Assert.Equal(expected, values);
     }
 }

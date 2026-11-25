@@ -1,7 +1,7 @@
-using Sortz;
+using Krynetic.Sortz;
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class SortConformanceTests
 {

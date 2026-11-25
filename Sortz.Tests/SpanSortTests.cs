@@ -1,7 +1,7 @@
-using Sortz;
+using Krynetic.Sortz;
 using Xunit;
 
-namespace Sortz.Tests;
+namespace Krynetic.Sortz.Tests;
 
 public sealed class SpanSortTests
 {
@@ -20,7 +20,7 @@ public sealed class SpanSortTests
             : null;
 
         Array.Sort(expected, comparer);
-        SortzNext.Sort(actual.AsSpan(1, size), comparer);
+        Sorter.Sort(actual.AsSpan(1, size), comparer);
 
         Assert.Equal(expected, actual.AsSpan(1, size).ToArray());
         Assert.Equal(123456, actual[0]);
@@ -31,7 +31,7 @@ public sealed class SpanSortTests
     public void SupportsStackAllocatedSpan()
     {
         Span<int> values = stackalloc int[] { 3, 1, 2, -1, 3 };
-        SortzNext.Sort(values);
+        Sorter.Sort(values);
         Assert.Equal(new[] { -1, 1, 2, 3, 3 }, values.ToArray());
     }
 }
