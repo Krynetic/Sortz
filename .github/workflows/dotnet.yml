@@ -2,6 +2,7 @@ name: .NET compatibility CI
 on:
   workflow_dispatch:
   push:
+  pull_request:
 jobs:
   test:
     runs-on: self-hosted
@@ -10,22 +11,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
+            8.0.x
             9.0.x
             11.0.x
           dotnet-quality: preview
       - name: Build all library targets
         run: dotnet build Krynetic.Sortz.sln -c Release
-      - name: Test .NET 11
-        run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release -f net11.0 --no-build
+      - name: Test .NET 8
+        run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release -f net8.0 --no-build
       - name: Test .NET 9
         run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release -f net9.0 --no-build
-      - name: Test .NET 5 assembly on .NET 9
-        run: dotnet test Krynetic.Sortz.Compatibility.Tests/Krynetic.Sortz.Compatibility.Tests.csproj -c Release
-      - name: Build .NET 5 runtime smoke test
-        run: dotnet build Krynetic.Sortz.Net5.Smoke -c Release
-      - name: Run smoke test on actual .NET 5 runtime
-        run: |
-          docker run --rm -i mcr.microsoft.com/dotnet/runtime:5.0 sh -c 'mkdir -p /tmp/sortz && tar -xf - -C /tmp/sortz && dotnet /tmp/sortz/Krynetic.Sortz.Net5.Smoke.dll' < <(tar -C Krynetic.Sortz.Net5.Smoke/bin/Release/net5.0 -cf - .)
-        shell: bash
+      - name: Test .NET 11
+        run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release -f net11.0 --no-build
       - name: Pack all three targets
         run: dotnet pack Krynetic.Sortz/Krynetic.Sortz.csproj -c Release --no-build -o artifacts/nuget

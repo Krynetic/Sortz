@@ -67,15 +67,15 @@ See the [full competitor timings and allocation results](docs/benchmarks.md#comp
 
 ## Installation
 
-Targets .NET 5, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
+Targets .NET 8, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
 
 | Target | Sorting implementation |
 |---|---|
 | `net11.0` | Full optimized implementation; all published benchmarks run on this target. |
 | `net9.0` | Same optimized implementation, including runtime-selected SIMD. |
-| `net5.0` | Portable, allocation-free introsort with ordered-input detection; lists and spans both use the Sortz implementation via direct backing-span access. |
+| `net8.0` | Same optimized implementation, including runtime-selected SIMD and radix sorting. |
 
-NuGet selects the most compatible assembly. Published .NET 11 performance results do not apply to the portable implementation. .NET 5 is an end-of-support compatibility target; use a supported runtime for new deployments.
+NuGet selects the most compatible assembly. All three targets share the same sorting source code. Published performance results are measured on .NET 11 only; performance may differ across runtimes.
 
 Once the package is available on NuGet:
 
@@ -172,7 +172,6 @@ When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized pa
 ```sh
 dotnet build Krynetic.Sortz.sln -c Release
 dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
-dotnet test Krynetic.Sortz.Compatibility.Tests/Krynetic.Sortz.Compatibility.Tests.csproj -c Release
 ```
 
 ## Run benchmarks

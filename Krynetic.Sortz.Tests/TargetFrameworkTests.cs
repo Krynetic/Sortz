@@ -9,8 +9,8 @@ public sealed class TargetFrameworkTests
     [Fact]
     public void LoadsExpectedLibraryAsset()
     {
-#if SORTZ_NET5_COMPAT
-        const string expected = ".NETCoreApp,Version=v5.0";
+#if NET8_0
+        const string expected = ".NETCoreApp,Version=v8.0";
 #elif NET9_0
         const string expected = ".NETCoreApp,Version=v9.0";
 #else
