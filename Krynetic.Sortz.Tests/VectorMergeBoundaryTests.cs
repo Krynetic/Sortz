@@ -64,6 +64,25 @@ public sealed class VectorMergeBoundaryTests
         }
     }
 
+    [Theory]
+    [InlineData(4096)]
+    [InlineData(65535)]
+    [InlineData(65536)]
+    public void CompactHistogramOffsetsPreserveAllKeys(int count)
+    {
+        var random = new Random(count);
+        var mixed = new int[count];
+        var lowEntropy = new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            mixed[i] = (int)random.NextInt64(int.MinValue, (long)int.MaxValue + 1);
+            lowEntropy[i] = (random.Next(3) - 1) << 22 | 2047;
+        }
+        Check(mixed);
+        Check(lowEntropy);
+        Check(Array.ConvertAll(mixed, x => unchecked((uint)x)));
+    }
+
     private static void Check<T>(T[] input)
     {
         T[] expected = (T[])input.Clone();

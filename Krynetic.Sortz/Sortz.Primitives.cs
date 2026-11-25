@@ -121,6 +121,20 @@ public static partial class Sortz
                 Unsafe.Add(ref h, 768 + (Unsafe.Add(ref data, index + 3) ^ sign))++;
             }
         }
+        else
+        {
+            for (; index <= values.Length - 4; index += 4)
+            {
+                int a = Unsafe.Add(ref data, index) ^ sign;
+                int b = Unsafe.Add(ref data, index + 1) ^ sign;
+                int c = Unsafe.Add(ref data, index + 2) ^ sign;
+                int d = Unsafe.Add(ref data, index + 3) ^ sign;
+                Unsafe.Add(ref h, a)++;
+                Unsafe.Add(ref h, b)++;
+                Unsafe.Add(ref h, c)++;
+                Unsafe.Add(ref h, d)++;
+            }
+        }
         for (; index < values.Length; index++)
             Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
 
@@ -740,22 +754,8 @@ public static partial class Sortz
             {
                 values.CopyTo(original);
                 ref T copy = ref MemoryMarshal.GetReference(original);
-                int gather = 0;
-                for (; gather <= length - 4; gather += 4)
-                {
-                    int a = (int)((uint)Unsafe.Add(ref keyData, gather) & indexMask);
-                    int b = (int)((uint)Unsafe.Add(ref keyData, gather + 1) & indexMask);
-                    int c = (int)((uint)Unsafe.Add(ref keyData, gather + 2) & indexMask);
-                    int d = (int)((uint)Unsafe.Add(ref keyData, gather + 3) & indexMask);
-                    T x = Unsafe.Add(ref copy, a), y = Unsafe.Add(ref copy, b);
-                    T z = Unsafe.Add(ref copy, c), w = Unsafe.Add(ref copy, d);
-                    Unsafe.Add(ref input, gather) = x;
-                    Unsafe.Add(ref input, gather + 1) = y;
-                    Unsafe.Add(ref input, gather + 2) = z;
-                    Unsafe.Add(ref input, gather + 3) = w;
-                }
-                for (; gather < length; gather++)
-                    Unsafe.Add(ref input, gather) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, gather) & indexMask));
+                for (int i = 0; i < length; i++)
+                    Unsafe.Add(ref input, i) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, i) & indexMask));
 
                 // Most projected keys are distinct. Scan adjacent keys once,
                 // entering collision repair only when their prefixes match.

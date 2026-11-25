@@ -391,20 +391,8 @@ public static partial class Sortz
         try
         {
             Span<ushort> low = histogram[..lowCount], high = histogram[lowCount..];
-            int offset = 0;
-            for (int i = 0; i < low.Length; i++)
-            {
-                int count = low[i];
-                low[i] = (ushort)offset;
-                offset += count;
-            }
-            offset = 0;
-            for (int i = 0; i < high.Length; i++)
-            {
-                int count = high[i];
-                high[i] = (ushort)offset;
-                offset += count;
-            }
+            PrefixCompact(low);
+            PrefixCompact(high);
             ScatterCompact(keys, scratch, low, indexBits, lowMask, 0);
             ScatterCompact(scratch, keys, high, highShift, highMask, sign);
         }
@@ -447,13 +435,7 @@ public static partial class Sortz
                 if (histogram[(int)(((first >> shift) & mask) ^ sign)] == count)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = (ushort)sum;
-                    sum += frequency;
-                }
+                PrefixCompact(histogram);
 
                 if (inScratch)
                     ScatterCompact(scratch, values, histogram, shift, mask, sign);
@@ -466,6 +448,38 @@ public static partial class Sortz
         finally
         {
             if (rented is not null) ArrayPool<int>.Shared.Return(rented);
+        }
+    }
+
+    // Exclusive prefix scan of compact counters. Each eight-lane block
+    // computes its local inclusive scan in three shifts, then adds the
+    // carry from the previous block. The caller bounds totals to 65535.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void PrefixCompact(Span<ushort> histogram)
+    {
+        ref ushort data = ref MemoryMarshal.GetReference(histogram);
+        int i = 0;
+        ushort sum = 0;
+        if (Sse2.IsSupported)
+        {
+            for (; i <= histogram.Length - 8; i += 8)
+            {
+                var original = Vector128.LoadUnsafe(ref data, (nuint)i);
+                var scan = original;
+                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 2).AsUInt16();
+                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 4).AsUInt16();
+                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 8).AsUInt16();
+                var inclusive = scan + Vector128.Create(sum);
+                (inclusive - original).StoreUnsafe(ref data, (nuint)i);
+                sum = inclusive.GetElement(7);
+            }
+        }
+        for (; i < histogram.Length; i++)
+        {
+            ref ushort entry = ref Unsafe.Add(ref data, i);
+            ushort count = entry;
+            entry = sum;
+            sum = (ushort)(sum + count);
         }
     }
 
