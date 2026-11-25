@@ -50,6 +50,21 @@ public sealed class AdaptiveCompetitorTests
         }
     }
 
+    [Theory]
+    [InlineData(257)]
+    [InlineData(4097)]
+    [InlineData(100003)]
+    public void SparseMergeHandlesLongOverlappingRuns(int size)
+    {
+        long[] source = Enumerable.Range(0, size).Select(i => (long)i / 2).ToArray();
+        (source[1], source[^2]) = (source[^2], source[1]);
+        (source[size / 4], source[3 * (size / 4)]) =
+            (source[3 * (size / 4)], source[size / 4]);
+        Check(source);
+        Check(source.Select(x => (int)x).ToArray());
+        Check(source.Select(x => (double)x).ToArray());
+    }
+
     [Fact]
     public void DoubleSpecialValuesPreserveAllBits()
     {
