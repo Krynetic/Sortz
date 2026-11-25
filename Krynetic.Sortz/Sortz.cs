@@ -42,7 +42,7 @@ public static partial class Sortz
         {
             var strings = MemoryMarshal.CreateSpan(
                 ref Unsafe.As<T, string?>(ref MemoryMarshal.GetReference(values)), values.Length);
-            if (!TryOrdered(strings, StringComparer.Ordinal))
+            if (!TryOrderedOrdinal(strings))
                 SortOrdinalPacked(strings);
             return;
         }
@@ -286,20 +286,13 @@ public static partial class Sortz
         int count = values.Length;
 
         // Ordered and reverse-ordered inputs require no scratch storage.
-        int i = 1;
-        while (i < count && values[i - 1] <= values[i])
-            i++;
-        if (i == count)
+        if (TryOrderedNumeric(values))
             return;
 
-        i = 1;
-        while (i < count && values[i - 1] >= values[i])
-            i++;
-        if (i == count)
-        {
-            values.Reverse();
+        if (count >= 4096 && TrySparseRepair(values))
             return;
-        }
+
+        int i;
 
         if (count <= 32)
         {
@@ -1344,7 +1337,10 @@ public static partial class Sortz
 
     private static void SortDouble(Span<double> values)
     {
-        if (TryOrdered(values, Comparer<double>.Default))
+        if (TryOrderedNumeric(values))
+            return;
+
+        if (values.Length >= 64 && TrySparseRepair(values))
             return;
 
         if (values.Length <= 32)

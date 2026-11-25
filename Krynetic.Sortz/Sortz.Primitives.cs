@@ -225,7 +225,8 @@ public static partial class Sortz
 
     private static void SortInt64(Span<long> values)
     {
-        if (TryOrderedInteger(values)) return;
+        if (TryOrderedNumeric(values)) return;
+        if (values.Length >= 64 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<long, ulong>(values);
         XorKeys(bits, 0x8000000000000000UL);
