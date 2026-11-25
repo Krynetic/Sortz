@@ -99,6 +99,50 @@ public sealed class AdaptiveCompetitorTests
         }
     }
 
+    [Theory]
+    [InlineData(33)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    [InlineData(255)]
+    [InlineData(256)]
+    [InlineData(257)]
+    public void SmallMappedNetworksAndSwapRepair(int size)
+    {
+        for (int seed = 0; seed < 32; seed++)
+        {
+            var rng = new Random(seed);
+            long[] numbers = Enumerable.Range(0, size).Select(_ =>
+                rng.NextInt64(long.MinValue, long.MaxValue)).ToArray();
+            numbers[0] = long.MinValue;
+            numbers[^1] = long.MaxValue;
+            Check(numbers);
+            Array.Sort(numbers);
+            for (int i = 0; i < size; i += 11 + seed % 23)
+            {
+                int j = rng.Next(size);
+                (numbers[i], numbers[j]) = (numbers[j], numbers[i]);
+            }
+            Check(numbers);
+
+            double[] floating = numbers.Select(BitConverter.Int64BitsToDouble).ToArray();
+            floating[0] = double.NegativeInfinity;
+            floating[1] = double.PositiveInfinity;
+            floating[2] = BitConverter.Int64BitsToDouble(long.MinValue);
+            floating[3] = 0;
+            if ((seed & 1) == 0)
+                floating[4] = BitConverter.Int64BitsToDouble(0x7ff8000000000001L + seed);
+            var expected = floating.Select(BitConverter.DoubleToInt64Bits).OrderBy(x => x).ToArray();
+            Sortz.Sort(floating.AsSpan());
+            Assert.Equal(expected, floating.Select(BitConverter.DoubleToInt64Bits).OrderBy(x => x).ToArray());
+            for (int i = 1; i < floating.Length; i++)
+                Assert.True(floating[i - 1].CompareTo(floating[i]) <= 0);
+        }
+    }
+
     [Fact]
     public void DoubleSpecialValuesPreserveAllBits()
     {
@@ -123,6 +167,56 @@ public sealed class AdaptiveCompetitorTests
         Check(values, StringComparer.Ordinal);
         Array.Reverse(values);
         Check(values, StringComparer.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(129)]
+    [InlineData(1025)]
+    [InlineData(10003)]
+    [InlineData(65537)]
+    [InlineData(100003)]
+    public void OrdinalPrefixScanAndSparsePackedKeys(int size)
+    {
+        var rng = new Random(size);
+        foreach (bool unicode in new[] { false, true })
+        {
+            string?[] input = new string?[size];
+            for (int i = 0; i < size; i++)
+            {
+                input[i] = (i % 23) switch
+                {
+                    0 => null,
+                    1 => "",
+                    2 => "\0",
+                    3 => "abc",
+                    4 => "abc\0",
+                    5 => "abcd\0",
+                    _ => string.Create(9, (rng, unicode), static (span, state) =>
+                    {
+                        for (int j = 0; j < span.Length; j++)
+                            span[j] = state.unicode ? (char)state.rng.Next(65536)
+                                : (char)state.rng.Next(32, 127);
+                    })
+                };
+            }
+            Array.Sort(input, StringComparer.Ordinal);
+            Check(input, StringComparer.Ordinal);
+            Array.Reverse(input);
+            Check(input, StringComparer.Ordinal);
+            Array.Reverse(input);
+            for (int i = 0; i < size; i += 53)
+            {
+                int j = rng.Next(size);
+                (input[i], input[j]) = (input[j], input[i]);
+            }
+            Check(input, StringComparer.Ordinal);
+            for (int i = size / 4; i < size; i++)
+            {
+                int j = rng.Next(size);
+                (input[i], input[j]) = (input[j], input[i]);
+            }
+            Check(input, StringComparer.Ordinal);
+        }
     }
 
     private static void Check<T>(T[] source, IComparer<T>? comparer = null)

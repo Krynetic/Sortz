@@ -899,7 +899,12 @@ public static partial class Sortz
                 }
             }
 
-            SortUInt64(keys, 8 - units * (latin1 ? 1 : 2));
+            // Repair sparse disorder directly in the compact integer keys.
+            // Full-key order is compatible with prefix order; any equal-prefix
+            // strings are still resolved exactly below. On rejection the
+            // existing radix path receives the restored key permutation.
+            if (count < 4096 || !TrySparseRepair(keys))
+                SortUInt64(keys, 8 - units * (latin1 ? 1 : 2));
 
             // The low index bits are payload, not part of the ordering.
             // Sequential reference writes avoid the cache misses of permutation cycles.
@@ -917,15 +922,26 @@ public static partial class Sortz
                 ArrayPool<string?>.Shared.Return(references);
             }
 
-            for (int start = 0; start < count;)
+            // Skip distinct prefixes in SIMD-sized groups. Only actual
+            // collisions need an ordinal comparison (or a deeper sort).
+            ref ulong keyData = ref MemoryMarshal.GetReference(keys);
+            int next = 1;
+            while (next < count)
             {
+                next = NextOrdinalCollision64(ref keyData, next, count, indexMask);
+                if (next == count) break;
+                int start = next - 1, end = next + 1;
                 ulong prefix = keys[start] & ~indexMask;
-                int end = start + 1;
                 while (end < count && (keys[end] & ~indexMask) == prefix)
                     end++;
-                if (end - start > 1)
+                if (end - start == 2)
+                {
+                    if (string.CompareOrdinal(values[start], values[next]) > 0)
+                        (values[start], values[next]) = (values[next], values[start]);
+                }
+                else
                     SortOrdinalBuckets(values[start..end], 0, 32);
-                start = end;
+                next = end + 1;
             }
         }
         finally
@@ -1340,7 +1356,10 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (values.Length >= 64 && TrySparseRepair(values))
+        if (values.Length >= 64 &&
+            (values.Length <= 256 && Vector512.IsHardwareAccelerated
+                ? TrySmallSwapRepair(values)
+                : TrySparseRepair(values)))
             return;
 
         if (values.Length <= 32)
@@ -1365,6 +1384,12 @@ public static partial class Sortz
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
         if (bits.Length < 2)
             return;
+
+        if (Vector512.IsHardwareAccelerated && bits.Length is > 32 and <= 128)
+        {
+            SimdSort.SortSmallMapped64<double>(bits);
+            return;
+        }
 
         TransformDoubleKeys(bits, false);
         try
