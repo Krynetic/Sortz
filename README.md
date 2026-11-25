@@ -30,7 +30,7 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware
 | string (culture) | 7.77× | 11.83× | 15.10× |
 | object benchmark | 1.02× | 0.97× | 1.15× |
 
-Speedup = DefaultListSort mean / SortzNextSort mean (historical benchmark method name). Values above 1× favor Sortz. These are measured results, not guaranteed speedups for every input or machine.
+Speedup = DefaultListSort mean / SortzSort mean. Values above 1× favor Sortz. These are measured results, not guaranteed speedups for every input or machine.
 
 Source: [benchmark workflow](https://github.com/Krynetic/Sortz/actions/runs/45511248356), commit [284d315](https://github.com/Krynetic/Sortz/commit/284d315b3ba71049bd74524efa115c11c3845eb9), AMD Ryzen 9 7900X, Ubuntu 24.04, .NET 11, BenchmarkDotNet 0.16.0-preview.2. All 648 tests passed.
 

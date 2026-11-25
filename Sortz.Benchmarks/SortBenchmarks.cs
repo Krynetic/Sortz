@@ -65,7 +65,7 @@ public class SortBenchmarks
     }
 
     [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
-    public void SortzNextSort()
+    public void SortzSort()
     {
         foreach (var list in lists) Sortz.Sort(CollectionsMarshal.AsSpan(list));
     }
