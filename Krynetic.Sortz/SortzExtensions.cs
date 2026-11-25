@@ -4,12 +4,9 @@ namespace Krynetic.Sortz;
 
 public static class SortzExtensions
 {
-    extension<T>(List<T> list)
+    public static void Sortz<T>(this List<T> list, IComparer<T>? comparer = null)
     {
-        public void Sortz(IComparer<T>? comparer = null)
-        {
-            ArgumentNullException.ThrowIfNull(list);
-            global::Krynetic.Sortz.Sortz.Sort(CollectionsMarshal.AsSpan(list), comparer);
-        }
+        ArgumentNullException.ThrowIfNull(list);
+        global::Krynetic.Sortz.Sortz.Sort(CollectionsMarshal.AsSpan(list), comparer);
     }
 }

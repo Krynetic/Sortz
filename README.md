@@ -67,7 +67,15 @@ See the [full competitor timings and allocation results](docs/benchmarks.md#comp
 
 ## Installation
 
-Requires .NET 11. Sortz has no additional runtime package dependencies.
+Targets .NET 8, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
+
+| Target | Sorting implementation |
+|---|---|
+| `net11.0` | Full optimized implementation; all published benchmarks run on this target. |
+| `net9.0` | Same optimized implementation, including runtime-selected SIMD. |
+| `net8.0` | Same optimized implementation, including runtime-selected SIMD and radix sorting. |
+
+NuGet selects the most compatible assembly. All three targets share the same sorting source code. Published performance results are measured on .NET 11 only; performance may differ across runtimes.
 
 Once the package is available on NuGet:
 
@@ -168,16 +176,16 @@ dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
 
 ## Run benchmarks
 
-From the repository root, using the .NET 11 SDK:
+From the repository root, using the .NET 11 SDK (both benchmark projects target .NET 11 only):
 
 ```sh
-dotnet run -c Release --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
 ```
 
 For the direct competitor comparison:
 
 ```sh
-dotnet run -c Release --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+dotnet run -c Release -f net11.0 --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
 ```
 
 To discover available benchmarks, select individual types, or locate reports, see [benchmark documentation](docs/benchmarks.md).
