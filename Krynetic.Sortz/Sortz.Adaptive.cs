@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -61,16 +62,58 @@ public static partial class Sortz
         return true;
     }
 
-    // Ordinal strings do not need an interface comparer call per adjacent pair.
+    // Cache the first four UTF-16 code units of the preceding string.
+    // A differing prefix settles the comparison without rereading either string.
+    // Equal prefixes (including zero padding, null and embedded NUL) use the
+    // exact ordinal comparer. No assumptions about the alphabet are made.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong OrderedOrdinalPrefix(string? value)
+    {
+        if (value is null) return 0;
+        if (value.Length >= 4 && BitConverter.IsLittleEndian)
+        {
+            ref char first = ref MemoryMarshal.GetReference(value.AsSpan());
+            ulong x = BinaryPrimitives.ReverseEndianness(
+                Unsafe.ReadUnaligned<ulong>(ref Unsafe.As<char, byte>(ref first)));
+            // Reverse the order of UTF-16 lanes, not the bytes within each lane.
+            return ((x & 0x00ff00ff00ff00ffUL) << 8) |
+                   ((x & 0xff00ff00ff00ff00UL) >> 8);
+        }
+
+        ulong prefix = 0;
+        for (int i = 0; i < Math.Min(4, value.Length); i++)
+            prefix |= (ulong)value[i] << (48 - 16 * i);
+        return prefix;
+    }
+
     private static bool TryOrderedOrdinal(Span<string?> values)
     {
         ref string? data = ref MemoryMarshal.GetReference(values);
         int length = values.Length;
         bool descending = string.CompareOrdinal(data, Unsafe.Add(ref data, length - 1)) > 0;
-        for (int i = 1; i < length; i++)
+        int i = 1;
+        // Most random inputs fail here; don't pay for prefix packing on them.
+        for (; i < Math.Min(5, length); i++)
         {
             int c = string.CompareOrdinal(Unsafe.Add(ref data, i - 1), Unsafe.Add(ref data, i));
             if (descending ? c < 0 : c > 0) return false;
+        }
+
+        string? previous = Unsafe.Add(ref data, i - 1);
+        ulong prior = OrderedOrdinalPrefix(previous);
+        ulong direction = descending ? ulong.MaxValue : 0;
+        for (; i < length; i++)
+        {
+            string? current = Unsafe.Add(ref data, i);
+            ulong key = OrderedOrdinalPrefix(current);
+            if ((prior ^ direction) > (key ^ direction)) return false;
+            if (prior == key)
+            {
+                int c = string.CompareOrdinal(previous, current);
+                if (descending ? c < 0 : c > 0) return false;
+            }
+            previous = current;
+            prior = key;
         }
         if (descending) values.Reverse();
         return true;
@@ -195,7 +238,23 @@ public static partial class Sortz
             }
 
             if (dropped == 0) return true;
-            Sort(rejected[..dropped]);
+            // Avoid a second adaptive-dispatch round for tiny rejected sets.
+            if (dropped <= 16)
+            {
+                for (int i = 1; i < dropped; i++)
+                {
+                    T key = rejected[i];
+                    int j = i;
+                    while (j > 0 && rejected[j - 1].CompareTo(key) > 0)
+                    {
+                        rejected[j] = rejected[j - 1];
+                        j--;
+                    }
+                    rejected[j] = key;
+                }
+            }
+            else
+                Sort(rejected[..dropped]);
             // Backward merging cannot overwrite an unread kept element.
             int left = kept - 1, right = dropped - 1, output = length - 1;
             while (right >= 0)

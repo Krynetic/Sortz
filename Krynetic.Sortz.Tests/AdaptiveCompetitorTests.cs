@@ -125,6 +125,56 @@ public sealed class AdaptiveCompetitorTests
         Check(values, StringComparer.Ordinal);
     }
 
+    [Theory]
+    [InlineData(129)]
+    [InlineData(1025)]
+    [InlineData(10003)]
+    [InlineData(65537)]
+    [InlineData(100003)]
+    public void OrdinalPrefixScanAndSparsePackedKeys(int size)
+    {
+        var rng = new Random(size);
+        foreach (bool unicode in new[] { false, true })
+        {
+            string?[] input = new string?[size];
+            for (int i = 0; i < size; i++)
+            {
+                input[i] = (i % 23) switch
+                {
+                    0 => null,
+                    1 => "",
+                    2 => "\0",
+                    3 => "abc",
+                    4 => "abc\0",
+                    5 => "abcd\0",
+                    _ => string.Create(9, (rng, unicode), static (span, state) =>
+                    {
+                        for (int j = 0; j < span.Length; j++)
+                            span[j] = state.unicode ? (char)state.rng.Next(65536)
+                                : (char)state.rng.Next(32, 127);
+                    })
+                };
+            }
+            Array.Sort(input, StringComparer.Ordinal);
+            Check(input, StringComparer.Ordinal);
+            Array.Reverse(input);
+            Check(input, StringComparer.Ordinal);
+            Array.Reverse(input);
+            for (int i = 0; i < size; i += 53)
+            {
+                int j = rng.Next(size);
+                (input[i], input[j]) = (input[j], input[i]);
+            }
+            Check(input, StringComparer.Ordinal);
+            for (int i = size / 4; i < size; i++)
+            {
+                int j = rng.Next(size);
+                (input[i], input[j]) = (input[j], input[i]);
+            }
+            Check(input, StringComparer.Ordinal);
+        }
+    }
+
     private static void Check<T>(T[] source, IComparer<T>? comparer = null)
     {
         var expected = (T[])source.Clone();
