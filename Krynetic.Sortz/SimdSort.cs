@@ -275,9 +275,11 @@ internal static class SimdSort
         for (int i = 0; i < values.Length; i += 128)
             Sort128Int32(values.Slice(i, 128));
 
-        Span<int> source = values, target = scratch;
+        bool inScratch = false;
         for (int width = 128; width < values.Length; width *= 2)
         {
+            scoped Span<int> source = inScratch ? scratch : values;
+            scoped Span<int> target = inScratch ? values : scratch;
             ref int src = ref MemoryMarshal.GetReference(source);
             ref int dst = ref MemoryMarshal.GetReference(target);
             for (int start = 0; start < values.Length; start += width * 2)
@@ -322,14 +324,10 @@ internal static class SimdSort
                         ref Unsafe.Add(ref output, written));
                 carry.StoreUnsafe(ref output, (nuint)written);
             }
-            Span<int> swap = source;
-            source = target;
-            target = swap;
+            inScratch = !inScratch;
         }
-        // A 512-element sort has two merge passes, a 1024-element
-        // sort has three. Only the latter finishes in scratch.
-        if (values.Length == 1024)
-            source.CopyTo(values);
+        if (inScratch)
+            scratch.CopyTo(values);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
