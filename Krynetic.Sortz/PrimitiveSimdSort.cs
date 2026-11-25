@@ -2,7 +2,6 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 
 namespace Krynetic.Sortz;
 
@@ -136,7 +135,7 @@ internal static class PrimitiveSimdSort
                         Vector512.Max(l1, r1).StoreUnsafe(ref data, d);
                     }
                 }
-                for (int distance = half / 2; distance > lanes; distance /= 2)
+                for (int distance = half / 2; distance >= lanes; distance /= 2)
                     for (int block = 0; block < width; block += distance * 2)
                         for (int i = block; i < block + distance; i += lanes)
                         {
@@ -146,26 +145,10 @@ internal static class PrimitiveSimdSort
                             Vector512.Min(left, right).StoreUnsafe(ref data, a);
                             Vector512.Max(left, right).StoreUnsafe(ref data, b);
                         }
-                // Finish the adjacent-vector stage and each lane network
-                // in registers, avoiding a store/reload of both intermediates.
-                if (half > lanes)
+                for (int i = 0; i < width; i += lanes)
                 {
-                    for (int i = 0; i < width; i += lanes * 2)
-                    {
-                        nuint a = (nuint)(start + i), b = (nuint)(start + i + lanes);
-                        var left = Vector512.LoadUnsafe(ref data, a);
-                        var right = Vector512.LoadUnsafe(ref data, b);
-                        MergeVector(Vector512.Min(left, right)).StoreUnsafe(ref data, a);
-                        MergeVector(Vector512.Max(left, right)).StoreUnsafe(ref data, b);
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < width; i += lanes)
-                    {
-                        nuint offset = (nuint)(start + i);
-                        MergeVector(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
-                    }
+                    nuint offset = (nuint)(start + i);
+                    MergeVector(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
                 }
             }
         }
@@ -174,128 +157,39 @@ internal static class PrimitiveSimdSort
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ushort> SortVector(Vector512<ushort> v)
     {
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask2_1);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle2)), Mask4_2);
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask4_1);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle4)), Mask8_4);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle2)), Mask8_2);
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask8_1);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle8)), Mask16_8);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle4)), Mask16_4);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle2)), Mask16_2);
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask16_1);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle16)), Mask32_16);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle8)), Mask32_8);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle4)), Mask32_4);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle2)), Mask32_2);
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask32_1);
+        v = Exchange(v, Shuffle1, Mask2_1);
+        v = Exchange(v, Shuffle2, Mask4_2);
+        v = Exchange(v, Shuffle1, Mask4_1);
+        v = Exchange(v, Shuffle4, Mask8_4);
+        v = Exchange(v, Shuffle2, Mask8_2);
+        v = Exchange(v, Shuffle1, Mask8_1);
+        v = Exchange(v, Shuffle8, Mask16_8);
+        v = Exchange(v, Shuffle4, Mask16_4);
+        v = Exchange(v, Shuffle2, Mask16_2);
+        v = Exchange(v, Shuffle1, Mask16_1);
+        v = Exchange(v, Shuffle16, Mask32_16);
+        v = Exchange(v, Shuffle8, Mask32_8);
+        v = Exchange(v, Shuffle4, Mask32_4);
+        v = Exchange(v, Shuffle2, Mask32_2);
+        v = Exchange(v, Shuffle1, Mask32_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ushort> MergeVector(Vector512<ushort> v)
     {
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle16)), Mask32_16);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle8)), Mask32_8);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt16() : Vector512.Shuffle(v, Shuffle4)), Mask32_4);
-        v = Exchange(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0xB1).AsUInt16() : Vector512.Shuffle(v, Shuffle2)), Mask32_2);
-        v = Exchange(v, Vector512.Shuffle(v, Shuffle1), Mask32_1);
+        v = Exchange(v, Shuffle16, Mask32_16);
+        v = Exchange(v, Shuffle8, Mask32_8);
+        v = Exchange(v, Shuffle4, Mask32_4);
+        v = Exchange(v, Shuffle2, Mask32_2);
+        v = Exchange(v, Shuffle1, Mask32_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ushort> Exchange(Vector512<ushort> v, Vector512<ushort> other, Vector512<ushort> mask)
+    private static Vector512<ushort> Exchange(Vector512<ushort> v, Vector512<ushort> shuffle, Vector512<ushort> mask)
     {
+        var other = Vector512.Shuffle(v, shuffle);
         return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
     }
-
-    // Native byte-width networks: no widening, narrowing or scratch buffer.
-    // The masks select the lower or upper member of each comparator.
-    private static readonly Vector512<byte> ByteShuffle1 = Vector512.Create((byte)1, (byte)0, (byte)3, (byte)2, (byte)5, (byte)4, (byte)7, (byte)6, (byte)9, (byte)8, (byte)11, (byte)10, (byte)13, (byte)12, (byte)15, (byte)14, (byte)1, (byte)0, (byte)3, (byte)2, (byte)5, (byte)4, (byte)7, (byte)6, (byte)9, (byte)8, (byte)11, (byte)10, (byte)13, (byte)12, (byte)15, (byte)14, (byte)1, (byte)0, (byte)3, (byte)2, (byte)5, (byte)4, (byte)7, (byte)6, (byte)9, (byte)8, (byte)11, (byte)10, (byte)13, (byte)12, (byte)15, (byte)14, (byte)1, (byte)0, (byte)3, (byte)2, (byte)5, (byte)4, (byte)7, (byte)6, (byte)9, (byte)8, (byte)11, (byte)10, (byte)13, (byte)12, (byte)15, (byte)14);
-    private static readonly Vector512<byte> ByteShuffle2 = Vector512.Create((byte)2, (byte)3, (byte)0, (byte)1, (byte)6, (byte)7, (byte)4, (byte)5, (byte)10, (byte)11, (byte)8, (byte)9, (byte)14, (byte)15, (byte)12, (byte)13, (byte)2, (byte)3, (byte)0, (byte)1, (byte)6, (byte)7, (byte)4, (byte)5, (byte)10, (byte)11, (byte)8, (byte)9, (byte)14, (byte)15, (byte)12, (byte)13, (byte)2, (byte)3, (byte)0, (byte)1, (byte)6, (byte)7, (byte)4, (byte)5, (byte)10, (byte)11, (byte)8, (byte)9, (byte)14, (byte)15, (byte)12, (byte)13, (byte)2, (byte)3, (byte)0, (byte)1, (byte)6, (byte)7, (byte)4, (byte)5, (byte)10, (byte)11, (byte)8, (byte)9, (byte)14, (byte)15, (byte)12, (byte)13);
-    private static readonly Vector512<byte> ByteShuffle4 = Vector512.Create((byte)4, (byte)5, (byte)6, (byte)7, (byte)0, (byte)1, (byte)2, (byte)3, (byte)12, (byte)13, (byte)14, (byte)15, (byte)8, (byte)9, (byte)10, (byte)11, (byte)4, (byte)5, (byte)6, (byte)7, (byte)0, (byte)1, (byte)2, (byte)3, (byte)12, (byte)13, (byte)14, (byte)15, (byte)8, (byte)9, (byte)10, (byte)11, (byte)4, (byte)5, (byte)6, (byte)7, (byte)0, (byte)1, (byte)2, (byte)3, (byte)12, (byte)13, (byte)14, (byte)15, (byte)8, (byte)9, (byte)10, (byte)11, (byte)4, (byte)5, (byte)6, (byte)7, (byte)0, (byte)1, (byte)2, (byte)3, (byte)12, (byte)13, (byte)14, (byte)15, (byte)8, (byte)9, (byte)10, (byte)11);
-    private static readonly Vector512<byte> ByteShuffle8 = Vector512.Create((byte)8, (byte)9, (byte)10, (byte)11, (byte)12, (byte)13, (byte)14, (byte)15, (byte)0, (byte)1, (byte)2, (byte)3, (byte)4, (byte)5, (byte)6, (byte)7, (byte)8, (byte)9, (byte)10, (byte)11, (byte)12, (byte)13, (byte)14, (byte)15, (byte)0, (byte)1, (byte)2, (byte)3, (byte)4, (byte)5, (byte)6, (byte)7, (byte)8, (byte)9, (byte)10, (byte)11, (byte)12, (byte)13, (byte)14, (byte)15, (byte)0, (byte)1, (byte)2, (byte)3, (byte)4, (byte)5, (byte)6, (byte)7, (byte)8, (byte)9, (byte)10, (byte)11, (byte)12, (byte)13, (byte)14, (byte)15, (byte)0, (byte)1, (byte)2, (byte)3, (byte)4, (byte)5, (byte)6, (byte)7);
-    private static readonly Vector512<byte> ByteReverse = Vector512.Create((byte)63, (byte)62, (byte)61, (byte)60, (byte)59, (byte)58, (byte)57, (byte)56, (byte)55, (byte)54, (byte)53, (byte)52, (byte)51, (byte)50, (byte)49, (byte)48, (byte)47, (byte)46, (byte)45, (byte)44, (byte)43, (byte)42, (byte)41, (byte)40, (byte)39, (byte)38, (byte)37, (byte)36, (byte)35, (byte)34, (byte)33, (byte)32, (byte)31, (byte)30, (byte)29, (byte)28, (byte)27, (byte)26, (byte)25, (byte)24, (byte)23, (byte)22, (byte)21, (byte)20, (byte)19, (byte)18, (byte)17, (byte)16, (byte)15, (byte)14, (byte)13, (byte)12, (byte)11, (byte)10, (byte)9, (byte)8, (byte)7, (byte)6, (byte)5, (byte)4, (byte)3, (byte)2, (byte)1, (byte)0);
-    private static readonly Vector512<byte> ByteMask2_1 = Vector512.Create((byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255);
-    private static readonly Vector512<byte> ByteMask4_2 = Vector512.Create((byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask4_1 = Vector512.Create((byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255);
-    private static readonly Vector512<byte> ByteMask8_4 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask8_2 = Vector512.Create((byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask8_1 = Vector512.Create((byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255);
-    private static readonly Vector512<byte> ByteMask16_8 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask16_4 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask16_2 = Vector512.Create((byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask16_1 = Vector512.Create((byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255);
-    private static readonly Vector512<byte> ByteMask32_16 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask32_8 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask32_4 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask32_2 = Vector512.Create((byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255);
-    private static readonly Vector512<byte> ByteMask32_1 = Vector512.Create((byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255);
-    private static readonly Vector512<byte> ByteMask64_32 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0);
-    private static readonly Vector512<byte> ByteMask64_16 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0);
-    private static readonly Vector512<byte> ByteMask64_8 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0, (byte)0);
-    private static readonly Vector512<byte> ByteMask64_4 = Vector512.Create((byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0, (byte)255, (byte)255, (byte)255, (byte)255, (byte)0, (byte)0, (byte)0, (byte)0);
-    private static readonly Vector512<byte> ByteMask64_2 = Vector512.Create((byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0, (byte)255, (byte)255, (byte)0, (byte)0);
-    private static readonly Vector512<byte> ByteMask64_1 = Vector512.Create((byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0, (byte)255, (byte)0);
-
-    public static void SortBytes(Span<byte> values, byte sign)
-    {
-        ref byte data = ref MemoryMarshal.GetReference(values);
-        var bias = Vector512.Create(sign);
-        var a = SortByteVector(Vector512.LoadUnsafe(ref data) ^ bias);
-        if (values.Length == 64)
-        {
-            (a ^ bias).StoreUnsafe(ref data);
-            return;
-        }
-        var b = SortByteVector(Vector512.LoadUnsafe(ref data, 64) ^ bias);
-        b = Vector512.Shuffle(b, ByteReverse);
-        var lo = Vector512.Min(a, b);
-        var hi = Vector512.Max(a, b);
-        (MergeByteVector(lo) ^ bias).StoreUnsafe(ref data);
-        (MergeByteVector(hi) ^ bias).StoreUnsafe(ref data, 64);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<byte> SortByteVector(Vector512<byte> v)
-    {
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask2_1);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask4_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask4_1);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle4), ByteMask8_4);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask8_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask8_1);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle8), ByteMask16_8);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle4), ByteMask16_4);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask16_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask16_1);
-        v = ExchangeByte(v, Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsByte(), ByteMask32_16);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle8), ByteMask32_8);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle4), ByteMask32_4);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask32_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask32_1);
-        v = ExchangeByte(v, Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsByte(), ByteMask64_32);
-        v = ExchangeByte(v, Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsByte(), ByteMask64_16);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle8), ByteMask64_8);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle4), ByteMask64_4);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask64_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask64_1);
-        return v;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<byte> MergeByteVector(Vector512<byte> v)
-    {
-        v = ExchangeByte(v, Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsByte(), ByteMask64_32);
-        v = ExchangeByte(v, Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsByte(), ByteMask64_16);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle8), ByteMask64_8);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle4), ByteMask64_4);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle2), ByteMask64_2);
-        v = ExchangeByte(v, Avx512BW.Shuffle(v, ByteShuffle1), ByteMask64_1);
-        return v;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<byte> ExchangeByte(Vector512<byte> v, Vector512<byte> other, Vector512<byte> mask)
-        => Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
 }

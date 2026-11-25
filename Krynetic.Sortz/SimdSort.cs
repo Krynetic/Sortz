@@ -2,7 +2,6 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 
 namespace Krynetic.Sortz;
 
@@ -178,12 +177,6 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void SortInt32Core(Span<int> values)
     {
-        if (values.Length is >= 512 and <= 1024)
-        {
-            SortInt32Streaming(values);
-            return;
-        }
-
         ref int data = ref MemoryMarshal.GetReference(values);
         const int lanes = 16;
         int initialWidth;
@@ -204,171 +197,73 @@ internal static class SimdSort
             int half = width / 2;
             for (int start = 0; start < values.Length; start += width)
             {
-                // Fuse the mirrored block exchange with the upper-half reversal.
-                // Load both right blocks before writing either of them.
-                if (half == lanes)
+                for (int i = 0; i < half; i += lanes)
                 {
-                    nuint a = (nuint)start, b = (nuint)(start + half);
+                    nuint a = (nuint)(start + i), b = (nuint)(start + width - lanes - i);
                     var left = Vector512.LoadUnsafe(ref data, a);
                     var right = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, b), ReverseInt32);
                     Vector512.Min(left, right).StoreUnsafe(ref data, a);
                     Vector512.Max(left, right).StoreUnsafe(ref data, b);
                 }
-                else
+                // The upper half is now in reversed block order. Reverse it back
+                // to make both halves bitonic in the same orientation.
+                for (int i = 0; i < half / 2; i += lanes)
                 {
-                    for (int i = 0; i < half / 2; i += lanes)
-                    {
-                        nuint a = (nuint)(start + i), b = (nuint)(start + half - lanes - i);
-                        nuint c = (nuint)(start + half + i), d = (nuint)(start + width - lanes - i);
-                        var l0 = Vector512.LoadUnsafe(ref data, a);
-                        var l1 = Vector512.LoadUnsafe(ref data, b);
-                        var r0 = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, d), ReverseInt32);
-                        var r1 = Vector512.Shuffle(Vector512.LoadUnsafe(ref data, c), ReverseInt32);
-                        Vector512.Min(l0, r0).StoreUnsafe(ref data, a);
-                        Vector512.Min(l1, r1).StoreUnsafe(ref data, b);
-                        Vector512.Max(l0, r0).StoreUnsafe(ref data, c);
-                        Vector512.Max(l1, r1).StoreUnsafe(ref data, d);
-                    }
+                    nuint a = (nuint)(start + half + i), b = (nuint)(start + width - lanes - i);
+                    var left = Vector512.LoadUnsafe(ref data, a);
+                    var right = Vector512.LoadUnsafe(ref data, b);
+                    right.StoreUnsafe(ref data, a);
+                    left.StoreUnsafe(ref data, b);
                 }
-                for (int distance = half / 2; distance > lanes; distance /= 2)
-                    for (int block = 0; block < width; block += distance * 2)
-                        for (int i = block; i < block + distance; i += lanes)
-                        {
-                            nuint a = (nuint)(start + i), b = (nuint)(start + i + distance);
-                            var left = Vector512.LoadUnsafe(ref data, a);
-                            var right = Vector512.LoadUnsafe(ref data, b);
-                            Vector512.Min(left, right).StoreUnsafe(ref data, a);
-                            Vector512.Max(left, right).StoreUnsafe(ref data, b);
-                        }
-                // Finish the adjacent-vector stage and each lane network
-                // in registers, avoiding a store/reload of both intermediates.
-                if (half > lanes)
-                {
-                    for (int i = 0; i < width; i += lanes * 2)
-                    {
-                        nuint a = (nuint)(start + i), b = (nuint)(start + i + lanes);
-                        var left = Vector512.LoadUnsafe(ref data, a);
-                        var right = Vector512.LoadUnsafe(ref data, b);
-                        MergeVectorInt32(Vector512.Min(left, right)).StoreUnsafe(ref data, a);
-                        MergeVectorInt32(Vector512.Max(left, right)).StoreUnsafe(ref data, b);
-                    }
-                }
-                else
-                {
+                for (int distance = half / 2; distance >= lanes; distance /= 2)
                     for (int i = 0; i < width; i += lanes)
                     {
-                        nuint offset = (nuint)(start + i);
-                        MergeVectorInt32(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
+                        if ((i & distance) != 0) continue;
+                        nuint a = (nuint)(start + i), b = (nuint)(start + i + distance);
+                        var left = Vector512.LoadUnsafe(ref data, a);
+                        var right = Vector512.LoadUnsafe(ref data, b);
+                        Vector512.Min(left, right).StoreUnsafe(ref data, a);
+                        Vector512.Max(left, right).StoreUnsafe(ref data, b);
                     }
+                for (int i = 0; i < width; i += lanes)
+                {
+                    nuint offset = (nuint)(start + i);
+                    MergeVectorInt32(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
                 }
             }
         }
-    }
-
-    // Merge sorted 128-element runs using a single vector of carry state.
-    // Each step emits the lowest 16 remaining elements, avoiding a full
-    // bitonic network over the entire run.
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void SortInt32Streaming(Span<int> values)
-    {
-        Span<int> scratch = stackalloc int[values.Length];
-        for (int i = 0; i < values.Length; i += 128)
-            Sort128Int32(values.Slice(i, 128));
-
-        bool inScratch = false;
-        for (int width = 128; width < values.Length; width *= 2)
-        {
-            scoped Span<int> source = inScratch ? scratch : values;
-            scoped Span<int> target = inScratch ? values : scratch;
-            ref int src = ref MemoryMarshal.GetReference(source);
-            ref int dst = ref MemoryMarshal.GetReference(target);
-            for (int start = 0; start < values.Length; start += width * 2)
-            {
-                ref int left = ref Unsafe.Add(ref src, start);
-                ref int right = ref Unsafe.Add(ref left, width);
-                ref int output = ref Unsafe.Add(ref dst, start);
-
-                if (Unsafe.Add(ref left, width - 1) <= right)
-                {
-                    source.Slice(start, width * 2).CopyTo(target.Slice(start, width * 2));
-                    continue;
-                }
-                if (Unsafe.Add(ref right, width - 1) <= left)
-                {
-                    source.Slice(start + width, width).CopyTo(target.Slice(start, width));
-                    source.Slice(start, width).CopyTo(target.Slice(start + width, width));
-                    continue;
-                }
-
-                var carry = Vector512.LoadUnsafe(ref left);
-                MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref right), ref output);
-                int l = 16, r = 16, written = 16;
-                while (l < width && r < width)
-                {
-                    // Whichever run has the smaller next head supplies
-                    // the next vector. The other head bounds the carry.
-                    bool takeLeft = Unsafe.Add(ref left, l) <= Unsafe.Add(ref right, r);
-                    var next = takeLeft
-                        ? Vector512.LoadUnsafe(ref left, (nuint)l)
-                        : Vector512.LoadUnsafe(ref right, (nuint)r);
-                    l += takeLeft ? 16 : 0;
-                    r += takeLeft ? 0 : 16;
-                    MergeInt32Block(ref carry, next, ref Unsafe.Add(ref output, written));
-                    written += 16;
-                }
-                for (; l < width; l += 16, written += 16)
-                    MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref left, (nuint)l),
-                        ref Unsafe.Add(ref output, written));
-                for (; r < width; r += 16, written += 16)
-                    MergeInt32Block(ref carry, Vector512.LoadUnsafe(ref right, (nuint)r),
-                        ref Unsafe.Add(ref output, written));
-                carry.StoreUnsafe(ref output, (nuint)written);
-            }
-            inScratch = !inScratch;
-        }
-        if (inScratch)
-            scratch.CopyTo(values);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void MergeInt32Block(ref Vector512<int> carry, Vector512<int> next, ref int output)
-    {
-        var reversed = Vector512.Shuffle(next, ReverseInt32);
-        var lo = Vector512.Min(carry, reversed);
-        var hi = Vector512.Max(carry, reversed);
-        MergeVectorInt32(lo).StoreUnsafe(ref output);
-        carry = MergeVectorInt32(hi);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<int> SortVectorInt32(Vector512<int> v)
     {
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xB1) : Vector512.Shuffle(v, ShuffleInt321)), MaskInt322_1);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4E) : Vector512.Shuffle(v, ShuffleInt322)), MaskInt324_2);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xB1) : Vector512.Shuffle(v, ShuffleInt321)), MaskInt324_1);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsInt32() : Vector512.Shuffle(v, ShuffleInt324)), MaskInt328_4);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4E) : Vector512.Shuffle(v, ShuffleInt322)), MaskInt328_2);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xB1) : Vector512.Shuffle(v, ShuffleInt321)), MaskInt328_1);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsInt32() : Vector512.Shuffle(v, ShuffleInt328)), MaskInt3216_8);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsInt32() : Vector512.Shuffle(v, ShuffleInt324)), MaskInt3216_4);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4E) : Vector512.Shuffle(v, ShuffleInt322)), MaskInt3216_2);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xB1) : Vector512.Shuffle(v, ShuffleInt321)), MaskInt3216_1);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt322_1);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt324_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt324_1);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt328_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt328_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt328_1);
+        v = ExchangeInt32(v, ShuffleInt328, MaskInt3216_8);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt3216_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt3216_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt3216_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<int> MergeVectorInt32(Vector512<int> v)
     {
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0x4E).AsInt32() : Vector512.Shuffle(v, ShuffleInt328)), MaskInt3216_8);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v.AsUInt64(), v.AsUInt64(), 0xB1).AsInt32() : Vector512.Shuffle(v, ShuffleInt324)), MaskInt3216_4);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0x4E) : Vector512.Shuffle(v, ShuffleInt322)), MaskInt3216_2);
-        v = ExchangeInt32(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v, 0xB1) : Vector512.Shuffle(v, ShuffleInt321)), MaskInt3216_1);
+        v = ExchangeInt32(v, ShuffleInt328, MaskInt3216_8);
+        v = ExchangeInt32(v, ShuffleInt324, MaskInt3216_4);
+        v = ExchangeInt32(v, ShuffleInt322, MaskInt3216_2);
+        v = ExchangeInt32(v, ShuffleInt321, MaskInt3216_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<int> ExchangeInt32(Vector512<int> v, Vector512<int> other, Vector512<int> mask)
+    private static Vector512<int> ExchangeInt32(Vector512<int> v, Vector512<int> shuffle, Vector512<int> mask)
     {
+        var other = Vector512.Shuffle(v, shuffle);
         return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
     }
 
@@ -408,70 +303,70 @@ internal static class SimdSort
     private static void Sort128UInt64(Span<ulong> values)
     {
         ref ulong data = ref MemoryMarshal.GetReference(values);
-        var v0 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 0));
-        var v1 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 8));
-        var v2 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 16));
-        var v3 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 24));
-        var v4 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 32));
-        var v5 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 40));
-        var v6 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 48));
-        var v7 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 56));
-        var v8 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 64));
-        var v9 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 72));
-        var v10 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 80));
-        var v11 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 88));
-        var v12 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 96));
-        var v13 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 104));
-        var v14 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 112));
-        var v15 = SortVectorUInt64Legacy(Vector512.LoadUnsafe(ref data, 120));
+        var v0 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 0));
+        var v1 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 8));
+        var v2 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 16));
+        var v3 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 24));
+        var v4 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 32));
+        var v5 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 40));
+        var v6 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 48));
+        var v7 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 56));
+        var v8 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 64));
+        var v9 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 72));
+        var v10 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 80));
+        var v11 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 88));
+        var v12 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 96));
+        var v13 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 104));
+        var v14 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 112));
+        var v15 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 120));
         var r2_0 = Vector512.Shuffle(v1, ReverseUInt64);
         var h2_0 = Vector512.Max(v0, r2_0);
         v0 = Vector512.Min(v0, r2_0);
         v1 = h2_0;
-        v0 = MergeVectorUInt64Legacy(v0);
-        v1 = MergeVectorUInt64Legacy(v1);
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
         var r2_2 = Vector512.Shuffle(v3, ReverseUInt64);
         var h2_2 = Vector512.Max(v2, r2_2);
         v2 = Vector512.Min(v2, r2_2);
         v3 = h2_2;
-        v2 = MergeVectorUInt64Legacy(v2);
-        v3 = MergeVectorUInt64Legacy(v3);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
         var r2_4 = Vector512.Shuffle(v5, ReverseUInt64);
         var h2_4 = Vector512.Max(v4, r2_4);
         v4 = Vector512.Min(v4, r2_4);
         v5 = h2_4;
-        v4 = MergeVectorUInt64Legacy(v4);
-        v5 = MergeVectorUInt64Legacy(v5);
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
         var r2_6 = Vector512.Shuffle(v7, ReverseUInt64);
         var h2_6 = Vector512.Max(v6, r2_6);
         v6 = Vector512.Min(v6, r2_6);
         v7 = h2_6;
-        v6 = MergeVectorUInt64Legacy(v6);
-        v7 = MergeVectorUInt64Legacy(v7);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
         var r2_8 = Vector512.Shuffle(v9, ReverseUInt64);
         var h2_8 = Vector512.Max(v8, r2_8);
         v8 = Vector512.Min(v8, r2_8);
         v9 = h2_8;
-        v8 = MergeVectorUInt64Legacy(v8);
-        v9 = MergeVectorUInt64Legacy(v9);
+        v8 = MergeVectorUInt64(v8);
+        v9 = MergeVectorUInt64(v9);
         var r2_10 = Vector512.Shuffle(v11, ReverseUInt64);
         var h2_10 = Vector512.Max(v10, r2_10);
         v10 = Vector512.Min(v10, r2_10);
         v11 = h2_10;
-        v10 = MergeVectorUInt64Legacy(v10);
-        v11 = MergeVectorUInt64Legacy(v11);
+        v10 = MergeVectorUInt64(v10);
+        v11 = MergeVectorUInt64(v11);
         var r2_12 = Vector512.Shuffle(v13, ReverseUInt64);
         var h2_12 = Vector512.Max(v12, r2_12);
         v12 = Vector512.Min(v12, r2_12);
         v13 = h2_12;
-        v12 = MergeVectorUInt64Legacy(v12);
-        v13 = MergeVectorUInt64Legacy(v13);
+        v12 = MergeVectorUInt64(v12);
+        v13 = MergeVectorUInt64(v13);
         var r2_14 = Vector512.Shuffle(v15, ReverseUInt64);
         var h2_14 = Vector512.Max(v14, r2_14);
         v14 = Vector512.Min(v14, r2_14);
         v15 = h2_14;
-        v14 = MergeVectorUInt64Legacy(v14);
-        v15 = MergeVectorUInt64Legacy(v15);
+        v14 = MergeVectorUInt64(v14);
+        v15 = MergeVectorUInt64(v15);
         var r4_0 = Vector512.Shuffle(v3, ReverseUInt64);
         var h4_0 = Vector512.Max(v0, r4_0);
         v0 = Vector512.Min(v0, r4_0);
@@ -486,10 +381,10 @@ internal static class SimdSort
         var t4_1_2 = Vector512.Max(v2, v3);
         v2 = Vector512.Min(v2, v3);
         v3 = t4_1_2;
-        v0 = MergeVectorUInt64Legacy(v0);
-        v1 = MergeVectorUInt64Legacy(v1);
-        v2 = MergeVectorUInt64Legacy(v2);
-        v3 = MergeVectorUInt64Legacy(v3);
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
         var r4_4 = Vector512.Shuffle(v7, ReverseUInt64);
         var h4_4 = Vector512.Max(v4, r4_4);
         v4 = Vector512.Min(v4, r4_4);
@@ -504,10 +399,10 @@ internal static class SimdSort
         var t4_1_6 = Vector512.Max(v6, v7);
         v6 = Vector512.Min(v6, v7);
         v7 = t4_1_6;
-        v4 = MergeVectorUInt64Legacy(v4);
-        v5 = MergeVectorUInt64Legacy(v5);
-        v6 = MergeVectorUInt64Legacy(v6);
-        v7 = MergeVectorUInt64Legacy(v7);
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
         var r4_8 = Vector512.Shuffle(v11, ReverseUInt64);
         var h4_8 = Vector512.Max(v8, r4_8);
         v8 = Vector512.Min(v8, r4_8);
@@ -522,10 +417,10 @@ internal static class SimdSort
         var t4_1_10 = Vector512.Max(v10, v11);
         v10 = Vector512.Min(v10, v11);
         v11 = t4_1_10;
-        v8 = MergeVectorUInt64Legacy(v8);
-        v9 = MergeVectorUInt64Legacy(v9);
-        v10 = MergeVectorUInt64Legacy(v10);
-        v11 = MergeVectorUInt64Legacy(v11);
+        v8 = MergeVectorUInt64(v8);
+        v9 = MergeVectorUInt64(v9);
+        v10 = MergeVectorUInt64(v10);
+        v11 = MergeVectorUInt64(v11);
         var r4_12 = Vector512.Shuffle(v15, ReverseUInt64);
         var h4_12 = Vector512.Max(v12, r4_12);
         v12 = Vector512.Min(v12, r4_12);
@@ -540,10 +435,10 @@ internal static class SimdSort
         var t4_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t4_1_14;
-        v12 = MergeVectorUInt64Legacy(v12);
-        v13 = MergeVectorUInt64Legacy(v13);
-        v14 = MergeVectorUInt64Legacy(v14);
-        v15 = MergeVectorUInt64Legacy(v15);
+        v12 = MergeVectorUInt64(v12);
+        v13 = MergeVectorUInt64(v13);
+        v14 = MergeVectorUInt64(v14);
+        v15 = MergeVectorUInt64(v15);
         var r8_0 = Vector512.Shuffle(v7, ReverseUInt64);
         var h8_0 = Vector512.Max(v0, r8_0);
         v0 = Vector512.Min(v0, r8_0);
@@ -584,14 +479,14 @@ internal static class SimdSort
         var t8_1_6 = Vector512.Max(v6, v7);
         v6 = Vector512.Min(v6, v7);
         v7 = t8_1_6;
-        v0 = MergeVectorUInt64Legacy(v0);
-        v1 = MergeVectorUInt64Legacy(v1);
-        v2 = MergeVectorUInt64Legacy(v2);
-        v3 = MergeVectorUInt64Legacy(v3);
-        v4 = MergeVectorUInt64Legacy(v4);
-        v5 = MergeVectorUInt64Legacy(v5);
-        v6 = MergeVectorUInt64Legacy(v6);
-        v7 = MergeVectorUInt64Legacy(v7);
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
         var r8_8 = Vector512.Shuffle(v15, ReverseUInt64);
         var h8_8 = Vector512.Max(v8, r8_8);
         v8 = Vector512.Min(v8, r8_8);
@@ -632,14 +527,14 @@ internal static class SimdSort
         var t8_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t8_1_14;
-        v8 = MergeVectorUInt64Legacy(v8);
-        v9 = MergeVectorUInt64Legacy(v9);
-        v10 = MergeVectorUInt64Legacy(v10);
-        v11 = MergeVectorUInt64Legacy(v11);
-        v12 = MergeVectorUInt64Legacy(v12);
-        v13 = MergeVectorUInt64Legacy(v13);
-        v14 = MergeVectorUInt64Legacy(v14);
-        v15 = MergeVectorUInt64Legacy(v15);
+        v8 = MergeVectorUInt64(v8);
+        v9 = MergeVectorUInt64(v9);
+        v10 = MergeVectorUInt64(v10);
+        v11 = MergeVectorUInt64(v11);
+        v12 = MergeVectorUInt64(v12);
+        v13 = MergeVectorUInt64(v13);
+        v14 = MergeVectorUInt64(v14);
+        v15 = MergeVectorUInt64(v15);
         var r16_0 = Vector512.Shuffle(v15, ReverseUInt64);
         var h16_0 = Vector512.Max(v0, r16_0);
         v0 = Vector512.Min(v0, r16_0);
@@ -744,22 +639,22 @@ internal static class SimdSort
         var t16_1_14 = Vector512.Max(v14, v15);
         v14 = Vector512.Min(v14, v15);
         v15 = t16_1_14;
-        v0 = MergeVectorUInt64Legacy(v0);
-        v1 = MergeVectorUInt64Legacy(v1);
-        v2 = MergeVectorUInt64Legacy(v2);
-        v3 = MergeVectorUInt64Legacy(v3);
-        v4 = MergeVectorUInt64Legacy(v4);
-        v5 = MergeVectorUInt64Legacy(v5);
-        v6 = MergeVectorUInt64Legacy(v6);
-        v7 = MergeVectorUInt64Legacy(v7);
-        v8 = MergeVectorUInt64Legacy(v8);
-        v9 = MergeVectorUInt64Legacy(v9);
-        v10 = MergeVectorUInt64Legacy(v10);
-        v11 = MergeVectorUInt64Legacy(v11);
-        v12 = MergeVectorUInt64Legacy(v12);
-        v13 = MergeVectorUInt64Legacy(v13);
-        v14 = MergeVectorUInt64Legacy(v14);
-        v15 = MergeVectorUInt64Legacy(v15);
+        v0 = MergeVectorUInt64(v0);
+        v1 = MergeVectorUInt64(v1);
+        v2 = MergeVectorUInt64(v2);
+        v3 = MergeVectorUInt64(v3);
+        v4 = MergeVectorUInt64(v4);
+        v5 = MergeVectorUInt64(v5);
+        v6 = MergeVectorUInt64(v6);
+        v7 = MergeVectorUInt64(v7);
+        v8 = MergeVectorUInt64(v8);
+        v9 = MergeVectorUInt64(v9);
+        v10 = MergeVectorUInt64(v10);
+        v11 = MergeVectorUInt64(v11);
+        v12 = MergeVectorUInt64(v12);
+        v13 = MergeVectorUInt64(v13);
+        v14 = MergeVectorUInt64(v14);
+        v15 = MergeVectorUInt64(v15);
         v0.StoreUnsafe(ref data, 0);
         v1.StoreUnsafe(ref data, 8);
         v2.StoreUnsafe(ref data, 16);
@@ -957,7 +852,7 @@ internal static class SimdSort
                         Vector512.Max(l1, r1).StoreUnsafe(ref data, d);
                     }
                 }
-                for (int distance = half / 2; distance > lanes; distance /= 2)
+                for (int distance = half / 2; distance >= lanes; distance /= 2)
                     for (int block = 0; block < width; block += distance * 2)
                         for (int i = block; i < block + distance; i += lanes)
                         {
@@ -967,26 +862,10 @@ internal static class SimdSort
                             Vector512.Min(left, right).StoreUnsafe(ref data, a);
                             Vector512.Max(left, right).StoreUnsafe(ref data, b);
                         }
-                // Finish the adjacent-vector stage and each lane network
-                // in registers, avoiding a store/reload of both intermediates.
-                if (half > lanes)
+                for (int i = 0; i < width; i += lanes)
                 {
-                    for (int i = 0; i < width; i += lanes * 2)
-                    {
-                        nuint a = (nuint)(start + i), b = (nuint)(start + i + lanes);
-                        var left = Vector512.LoadUnsafe(ref data, a);
-                        var right = Vector512.LoadUnsafe(ref data, b);
-                        MergeVectorUInt64(Vector512.Min(left, right)).StoreUnsafe(ref data, a);
-                        MergeVectorUInt64(Vector512.Max(left, right)).StoreUnsafe(ref data, b);
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < width; i += lanes)
-                    {
-                        nuint offset = (nuint)(start + i);
-                        MergeVectorUInt64(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
-                    }
+                    nuint offset = (nuint)(start + i);
+                    MergeVectorUInt64(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
                 }
             }
         }
@@ -995,53 +874,26 @@ internal static class SimdSort
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ulong> SortVectorUInt64(Vector512<ulong> v)
     {
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt64() : Vector512.Shuffle(v, ShuffleUInt641)), MaskUInt642_1);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xB1) : Vector512.Shuffle(v, ShuffleUInt642)), MaskUInt644_2);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt64() : Vector512.Shuffle(v, ShuffleUInt641)), MaskUInt644_1);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4E) : Vector512.Shuffle(v, ShuffleUInt644)), MaskUInt648_4);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xB1) : Vector512.Shuffle(v, ShuffleUInt642)), MaskUInt648_2);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt64() : Vector512.Shuffle(v, ShuffleUInt641)), MaskUInt648_1);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt642_1);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt644_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt644_1);
+        v = ExchangeUInt64(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt648_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<ulong> MergeVectorUInt64(Vector512<ulong> v)
     {
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0x4E) : Vector512.Shuffle(v, ShuffleUInt644)), MaskUInt648_4);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle4x128(v, v, 0xB1) : Vector512.Shuffle(v, ShuffleUInt642)), MaskUInt648_2);
-        v = ExchangeUInt64(v, (Avx512F.IsSupported ? Avx512F.Shuffle(v.AsUInt32(), 0x4E).AsUInt64() : Vector512.Shuffle(v, ShuffleUInt641)), MaskUInt648_1);
+        v = ExchangeUInt64(v, ShuffleUInt644, MaskUInt648_4);
+        v = ExchangeUInt64(v, ShuffleUInt642, MaskUInt648_2);
+        v = ExchangeUInt64(v, ShuffleUInt641, MaskUInt648_1);
         return v;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ulong> ExchangeUInt64(Vector512<ulong> v, Vector512<ulong> other, Vector512<ulong> mask)
-    {
-        return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ulong> SortVectorUInt64Legacy(Vector512<ulong> v)
-    {
-        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt642_1);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt644_2);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt644_1);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt644, MaskUInt648_4);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt648_2);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt648_1);
-        return v;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ulong> MergeVectorUInt64Legacy(Vector512<ulong> v)
-    {
-        v = ExchangeUInt64Legacy(v, ShuffleUInt644, MaskUInt648_4);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt642, MaskUInt648_2);
-        v = ExchangeUInt64Legacy(v, ShuffleUInt641, MaskUInt648_1);
-        return v;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector512<ulong> ExchangeUInt64Legacy(Vector512<ulong> v, Vector512<ulong> shuffle, Vector512<ulong> mask)
+    private static Vector512<ulong> ExchangeUInt64(Vector512<ulong> v, Vector512<ulong> shuffle, Vector512<ulong> mask)
     {
         var other = Vector512.Shuffle(v, shuffle);
         return Vector512.ConditionalSelect(mask, Vector512.Min(v, other), Vector512.Max(v, other));

@@ -73,12 +73,6 @@ public static partial class Sortz
             return;
         }
 
-        if (Avx512Vbmi.IsSupported && Avx512BW.IsSupported && values.Length is 64 or 128)
-        {
-            PrimitiveSimdSort.SortBytes(values, (byte)sign);
-            return;
-        }
-
         if (Avx512BW.IsSupported && values.Length <= 256)
         {
             Span<ushort> keys = stackalloc ushort[values.Length];
@@ -121,20 +115,6 @@ public static partial class Sortz
                 Unsafe.Add(ref h, 768 + (Unsafe.Add(ref data, index + 3) ^ sign))++;
             }
         }
-        else
-        {
-            for (; index <= values.Length - 4; index += 4)
-            {
-                int a = Unsafe.Add(ref data, index) ^ sign;
-                int b = Unsafe.Add(ref data, index + 1) ^ sign;
-                int c = Unsafe.Add(ref data, index + 2) ^ sign;
-                int d = Unsafe.Add(ref data, index + 3) ^ sign;
-                Unsafe.Add(ref h, a)++;
-                Unsafe.Add(ref h, b)++;
-                Unsafe.Add(ref h, c)++;
-                Unsafe.Add(ref h, d)++;
-            }
-        }
         for (; index < values.Length; index++)
             Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
 
@@ -144,12 +124,12 @@ public static partial class Sortz
             int frequency = Unsafe.Add(ref h, i);
             if (striped)
                 frequency += Unsafe.Add(ref h, i + 256) + Unsafe.Add(ref h, i + 512) + Unsafe.Add(ref h, i + 768);
+            if (frequency == 0) continue;
             byte value = (byte)(i ^ sign);
-            // Empty buckets can also write speculatively: the next nonempty
-            // bucket overwrites them. Keep the fast path independent of occupancy.
             if (frequency <= 8 && offset <= values.Length - 8)
+                // The following buckets overwrite any excess bytes; never write outside the span.
                 Unsafe.WriteUnaligned(ref Unsafe.Add(ref data, offset), 0x0101010101010101UL * value);
-            else if (frequency != 0)
+            else
                 values.Slice(offset, frequency).Fill(value);
             offset += frequency;
         }
@@ -220,38 +200,18 @@ public static partial class Sortz
         {
             ref ushort source = ref MemoryMarshal.GetReference(values);
             ref ushort target = ref MemoryMarshal.GetReference(scratch);
-            ScatterUInt16(ref source, ref target, ref h, length, 0);
-            ScatterUInt16(ref target, ref source, ref Unsafe.Add(ref h, 256), length, 8);
+            for (int i = 0; i < length; i++)
+            {
+                ushort value = Unsafe.Add(ref source, i);
+                Unsafe.Add(ref target, Unsafe.Add(ref h, (byte)value)++) = value;
+            }
+            for (int i = 0; i < length; i++)
+            {
+                ushort value = Unsafe.Add(ref target, i);
+                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
+            }
         }
         finally { if (rented is not null) ArrayPool<ushort>.Shared.Return(rented); }
-    }
-
-    // Four independent input loads, then stable counter updates in input order.
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void ScatterUInt16(ref ushort source, ref ushort target, ref int histogram, int length, int shift)
-    {
-        int i = 0;
-        for (; i <= length - 4; i += 4)
-        {
-            ushort a = Unsafe.Add(ref source, i);
-            ushort b = Unsafe.Add(ref source, i + 1);
-            ushort c = Unsafe.Add(ref source, i + 2);
-            ushort d = Unsafe.Add(ref source, i + 3);
-            ref int pa = ref Unsafe.Add(ref histogram, (byte)(a >> shift));
-            ref int pb = ref Unsafe.Add(ref histogram, (byte)(b >> shift));
-            ref int pc = ref Unsafe.Add(ref histogram, (byte)(c >> shift));
-            ref int pd = ref Unsafe.Add(ref histogram, (byte)(d >> shift));
-            int ia = pa++, ib = pb++, ic = pc++, id = pd++;
-            Unsafe.Add(ref target, ia) = a;
-            Unsafe.Add(ref target, ib) = b;
-            Unsafe.Add(ref target, ic) = c;
-            Unsafe.Add(ref target, id) = d;
-        }
-        for (; i < length; i++)
-        {
-            ushort value = Unsafe.Add(ref source, i);
-            Unsafe.Add(ref target, Unsafe.Add(ref histogram, (byte)(value >> shift))++) = value;
-        }
     }
 
     private static void SortUInt32(Span<uint> values)
@@ -283,10 +243,8 @@ public static partial class Sortz
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SortPrimitiveUInt64(Span<ulong> values)
     {
-        if (values.Length is >= 512 and <= 65536 &&
-            (values.Length >= 4096 || Vector512.IsHardwareAccelerated) &&
-            (TryProjectedCompact(values, Comparer<ulong>.Default, false) ||
-             (values.Length >= 4096 && TryBucketUInt64(values))))
+        if (values.Length is >= 4096 and <= 65536 &&
+            (TryProjectedCompact(values, Comparer<ulong>.Default, false) || TryBucketUInt64(values)))
             return;
         SortUInt64(values);
     }

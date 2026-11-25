@@ -391,10 +391,22 @@ public static partial class Sortz
         try
         {
             Span<ushort> low = histogram[..lowCount], high = histogram[lowCount..];
-            PrefixCompact(low);
-            PrefixCompact(high);
-            ScatterCompact(keys, scratch, low, indexBits, lowMask, 0);
-            ScatterCompact(scratch, keys, high, highShift, highMask, sign);
+            int offset = 0;
+            for (int i = 0; i < low.Length; i++)
+            {
+                int count = low[i];
+                low[i] = (ushort)offset;
+                offset += count;
+            }
+            offset = 0;
+            for (int i = 0; i < high.Length; i++)
+            {
+                int count = high[i];
+                high[i] = (ushort)offset;
+                offset += count;
+            }
+            ScatterProjectedCompact(keys, scratch, low, indexBits, lowMask, 0);
+            ScatterProjectedCompact(scratch, keys, high, highShift, highMask, sign);
         }
         finally
         {
@@ -435,7 +447,13 @@ public static partial class Sortz
                 if (histogram[(int)(((first >> shift) & mask) ^ sign)] == count)
                     continue;
 
-                PrefixCompact(histogram);
+                int sum = 0;
+                for (int b = 0; b < histogram.Length; b++)
+                {
+                    int frequency = histogram[b];
+                    histogram[b] = (ushort)sum;
+                    sum += frequency;
+                }
 
                 if (inScratch)
                     ScatterCompact(scratch, values, histogram, shift, mask, sign);
@@ -451,40 +469,26 @@ public static partial class Sortz
         }
     }
 
-    // Exclusive prefix scan of compact counters. Each eight-lane block
-    // computes its local inclusive scan in three shifts, then adds the
-    // carry from the previous block. The caller bounds totals to 65535.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void PrefixCompact(Span<ushort> histogram)
+    private static void ScatterCompact(ReadOnlySpan<int> source, Span<int> target,
+        Span<ushort> histogram, int shift, uint mask, uint sign)
     {
-        ref ushort data = ref MemoryMarshal.GetReference(histogram);
-        int i = 0;
-        ushort sum = 0;
-        if (Sse2.IsSupported)
+        ref int input = ref MemoryMarshal.GetReference(source);
+        ref int output = ref MemoryMarshal.GetReference(target);
+        ref ushort offsets = ref MemoryMarshal.GetReference(histogram);
+        for (int i = 0; i < source.Length; i++)
         {
-            for (; i <= histogram.Length - 8; i += 8)
-            {
-                var original = Vector128.LoadUnsafe(ref data, (nuint)i);
-                var scan = original;
-                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 2).AsUInt16();
-                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 4).AsUInt16();
-                scan += Sse2.ShiftLeftLogical128BitLane(scan.AsByte(), 8).AsUInt16();
-                var inclusive = scan + Vector128.Create(sum);
-                (inclusive - original).StoreUnsafe(ref data, (nuint)i);
-                sum = inclusive.GetElement(7);
-            }
-        }
-        for (; i < histogram.Length; i++)
-        {
-            ref ushort entry = ref Unsafe.Add(ref data, i);
-            ushort count = entry;
-            entry = sum;
-            sum = (ushort)(sum + count);
+            int value = Unsafe.Add(ref input, i);
+            int bucket = (int)((((uint)value >> shift) & mask) ^ sign);
+            ref ushort position = ref Unsafe.Add(ref offsets, bucket);
+            int index = position;
+            position = (ushort)(index + 1);
+            Unsafe.Add(ref output, index) = value;
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void ScatterCompact(ReadOnlySpan<int> source, Span<int> target,
+    private static void ScatterProjectedCompact(ReadOnlySpan<int> source, Span<int> target,
         Span<ushort> histogram, int shift, uint mask, uint sign)
     {
         ref int input = ref MemoryMarshal.GetReference(source);
@@ -1369,9 +1373,7 @@ public static partial class Sortz
         TransformDoubleKeys(bits, false);
         try
         {
-            if (!(bits.Length is >= 512 and <= 1024 && Vector512.IsHardwareAccelerated &&
-                  TryProjectedCompact(bits, Comparer<ulong>.Default, false)))
-                SortUInt64(bits);
+            SortUInt64(bits);
         }
         finally
         {
