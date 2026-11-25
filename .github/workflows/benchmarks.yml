@@ -2,32 +2,77 @@ name: Sorting benchmarks
 on:
   workflow_dispatch:
   push:
+concurrency:
+  group: sortz-runner-exclusive
+  cancel-in-progress: false
+permissions:
+  contents: read
 jobs:
   benchmark:
     runs-on: self-hosted
+    timeout-minutes: 60
+    env:
+      DOTNET_TieredCompilation: '0'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: fast-actions/setup-dotnet@v1
         if: ${{ runner.environment == 'github-hosted' }}
         with:
           dotnet-version: '11.0.x'
           allow-preview: true
-      - run: dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
-      - run: dotnet run -c Release --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
-      - name: Publish results
-        if: always()
+      - name: Prepare identical benchmark harness
+        shell: bash
         run: |
-          for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
-            if [ -f "$report" ]; then
-              {
-                printf '## %s\n\n' "$(basename "$report" -report-github.md)"
-                cat "$report"
-                printf '\n\n'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
+          set -euo pipefail
+          base=$(git rev-parse origin/main)
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          work=$(mktemp -d)
+          echo "PAIR_ROOT=$work" >> "$GITHUB_ENV"
+          git worktree add --detach "$work/main" "$base"
+          git worktree add --detach "$work/pr" HEAD
+          # Use exactly the same harness and inputs for both library revisions.
+          cp -a Krynetic.Sortz.Benchmarks/. "$work/main/Krynetic.Sortz.Benchmarks/"
+          cp Krynetic.Sortz.Tests/SortInputs.cs "$work/main/Krynetic.Sortz.Tests/SortInputs.cs"
+          mkdir -p "$work/results"
+          # Select one allowed logical CPU for all benchmark processes.
+          cpu=$(python3 -c 'import os; print(min(os.sched_getaffinity(0)))')
+          echo "BENCH_CPU=$cpu" >> "$GITHUB_ENV"
+          lscpu
+          dotnet --info
+      - name: Build and test both revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for side in main pr; do
+            cd "$PAIR_ROOT/$side"
+            dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
+            dotnet build Krynetic.Sortz.Benchmarks/Krynetic.Sortz.Benchmarks.csproj -c Release
           done
-      #- uses: actions/upload-artifact@v7
-      #  if: always()
-      #  with:
-      #    name: benchmark-results
-      #    path: BenchmarkDotNet.Artifacts/results/
+      - name: Sequential paired benchmarks (ABBA)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in main-1 pr-1 pr-2 main-2; do
+            side=${pair%-*}
+            cd "$PAIR_ROOT/$side"
+            rm -rf BenchmarkDotNet.Artifacts
+            taskset -c "$BENCH_CPU" dotnet run -c Release --no-build --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+            mkdir -p "$PAIR_ROOT/results/$pair"
+            cp BenchmarkDotNet.Artifacts/results/*-report-github.md "$PAIR_ROOT/results/$pair/"
+          done
+      - name: Publish paired comparison
+        shell: bash
+        run: |
+          python3 .github/scripts/compare-benchmarks.py "$PAIR_ROOT/results" "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${PAIR_ROOT:-}" ]; then
+            git worktree remove --force "$PAIR_ROOT/main" || true
+            git worktree remove --force "$PAIR_ROOT/pr" || true
+            rm -rf "$PAIR_ROOT"
+          fi

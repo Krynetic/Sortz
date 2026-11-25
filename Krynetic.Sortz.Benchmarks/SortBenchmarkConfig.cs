@@ -6,7 +6,7 @@ namespace Krynetic.Sortz.Benchmarks;
 
 public sealed class SortBenchmarkConfig : ManualConfig
 {
-    public const int BatchSize = 16;
+    public const int BatchSize = 128;
 
     public SortBenchmarkConfig()
     {

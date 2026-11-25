@@ -7,6 +7,9 @@ on:
       - '.github/workflows/comparison.yaml'
 permissions:
   contents: read
+concurrency:
+  group: sortz-runner-exclusive
+  cancel-in-progress: false
 jobs:
   comparison:
     runs-on: self-hosted
