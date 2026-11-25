@@ -35,7 +35,7 @@ public abstract class TypedSortBenchmark<T>
     }
 
     [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
-    public void SortzNextSort()
+    public void SortzSort()
     {
         var comparer = Comparer;
         foreach (var list in lists) Sortz.Sort(CollectionsMarshal.AsSpan(list), comparer);

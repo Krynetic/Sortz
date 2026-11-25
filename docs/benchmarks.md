@@ -50,10 +50,10 @@ Use BenchmarkDotNet wildcard filters against the names listed above:
 
 ```sh
 dotnet run -c Release --project Sortz.Benchmarks -- --filter '*DoubleSortBenchmarks*' --exporters json
-dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortzNextSort*' --exporters json
+dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortzSort*' --exporters json
 ```
 
-The second command runs SortzNext only; retain both sorting methods when measuring comparative speedups.
+The second command runs Sortz only; retain both sorting methods when measuring comparative speedups.
 
 ### Results and CLI options
 
@@ -61,4 +61,4 @@ The second command runs SortzNext only; retain both sorting methods when measuri
 dotnet run -c Release --project Sortz.Benchmarks -- --help
 ```
 
-BenchmarkDotNet prints the summary to the terminal and writes reports under `BenchmarkDotNet.Artifacts/results/` by default, including JSON when requested above. Compare the Mean column for DefaultListSort and SortzNextSort at matching parameter values. Use Release builds, consistent hardware and runtime settings, and avoid other intensive workloads when measuring performance.
+BenchmarkDotNet prints the summary to the terminal and writes reports under `BenchmarkDotNet.Artifacts/results/` by default, including JSON when requested above. Compare the Mean column for DefaultListSort and SortzSort at matching parameter values. Use Release builds, consistent hardware and runtime settings, and avoid other intensive workloads when measuring performance.
