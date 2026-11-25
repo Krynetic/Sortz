@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.2" />
+    <PackageReference Include="YamSort" Version="1.1.0" />
+    <PackageReference Include="Celerity.Sorting" Version="2.6.0" />
+    <PackageReference Include="HPCsharp" Version="3.19.8" />
+    <ProjectReference Include="../Krynetic.Sortz/Krynetic.Sortz.csproj" />
+  </ItemGroup>
+</Project>
