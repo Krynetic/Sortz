@@ -7,6 +7,7 @@ namespace Krynetic.Sortz.Benchmarks;
 public sealed class SortBenchmarkConfig : ManualConfig
 {
     public const int BatchSize = 32;
+    public const int InvocationCount = 16;
 
     public SortBenchmarkConfig()
     {
@@ -17,8 +18,8 @@ public sealed class SortBenchmarkConfig : ManualConfig
             .WithWarmupCount(30)
             .WithIterationCount(60)
             .WithLaunchCount(1)
-            .WithInvocationCount(16)
-            .WithUnrollFactor(16)
+            .WithInvocationCount(InvocationCount)
+            .WithUnrollFactor(InvocationCount)
         );
     }
 }
