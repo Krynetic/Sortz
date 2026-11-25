@@ -318,6 +318,12 @@ public static partial class Sortz
             return;
         }
 
+        if (Avx512F.IsSupported && count is >= 256 and <= 16384)
+        {
+            SortCompressedPartition(values);
+            return;
+        }
+
         if (Vector512.IsHardwareAccelerated && count <= 1024)
         {
             SimdSort.SortInt32(values);
@@ -1741,6 +1747,11 @@ public static partial class Sortz
     {
         if (bits.Length < 2)
             return;
+        if (Avx512F.IsSupported && bits.Length is >= 256 and <= 2048)
+        {
+            SortCompressedPartition(bits);
+            return;
+        }
         if (Vector512.IsHardwareAccelerated && bits.Length <= 1024)
         {
             SimdSort.SortUInt64(bits);
