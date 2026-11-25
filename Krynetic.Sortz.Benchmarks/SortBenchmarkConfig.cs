@@ -14,10 +14,11 @@ public sealed class SortBenchmarkConfig : ManualConfig
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(40)
-            .WithIterationCount(80)
+            .WithWarmupCount(30)
+            .WithIterationCount(60)
             .WithLaunchCount(1)
-            .WithInvocationCount(1)
+            .WithInvocationCount(16)
+            .WithUnrollFactor(16)
         );
     }
 }
