@@ -102,7 +102,7 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void SortzSort()
     {
-        foreach (var values in lists) global::Krynetic.Sortz.SortzExtensions.Sortz(values);
+        foreach (var values in lists) global::Krynetic.Sortz.SortzExtensions.Sortz(values, Comparer);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
