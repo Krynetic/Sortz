@@ -18,6 +18,8 @@ public sealed class VectorMergeBoundaryTests
     [InlineData(256)]
     [InlineData(257)]
     [InlineData(511)]
+    [InlineData(512)]
+    [InlineData(513)]
     [InlineData(1024)]
     [InlineData(1025)]
     [InlineData(2048)]
@@ -52,6 +54,9 @@ public sealed class VectorMergeBoundaryTests
             Check(Array.ConvertAll(input, x => unchecked((byte)x)));
             Check(Array.ConvertAll(input, x => unchecked((sbyte)x)));
             Check(wide);
+            Check(Array.ConvertAll(wide, x => BitConverter.Int64BitsToDouble(unchecked((long)x))));
+            Check(Array.ConvertAll(wide, x => unchecked((nuint)x)));
+            Check(Array.ConvertAll(wide, x => unchecked((nint)x)));
             Check(narrow);
             Check(Array.ConvertAll(input, x => unchecked((uint)x)));
             Check(Array.ConvertAll(wide, x => unchecked((long)x)));

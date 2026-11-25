@@ -206,18 +206,38 @@ public static partial class Sortz
         {
             ref ushort source = ref MemoryMarshal.GetReference(values);
             ref ushort target = ref MemoryMarshal.GetReference(scratch);
-            for (int i = 0; i < length; i++)
-            {
-                ushort value = Unsafe.Add(ref source, i);
-                Unsafe.Add(ref target, Unsafe.Add(ref h, (byte)value)++) = value;
-            }
-            for (int i = 0; i < length; i++)
-            {
-                ushort value = Unsafe.Add(ref target, i);
-                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
-            }
+            ScatterUInt16(ref source, ref target, ref h, length, 0);
+            ScatterUInt16(ref target, ref source, ref Unsafe.Add(ref h, 256), length, 8);
         }
         finally { if (rented is not null) ArrayPool<ushort>.Shared.Return(rented); }
+    }
+
+    // Four independent input loads, then stable counter updates in input order.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void ScatterUInt16(ref ushort source, ref ushort target, ref int histogram, int length, int shift)
+    {
+        int i = 0;
+        for (; i <= length - 4; i += 4)
+        {
+            ushort a = Unsafe.Add(ref source, i);
+            ushort b = Unsafe.Add(ref source, i + 1);
+            ushort c = Unsafe.Add(ref source, i + 2);
+            ushort d = Unsafe.Add(ref source, i + 3);
+            ref int pa = ref Unsafe.Add(ref histogram, (byte)(a >> shift));
+            ref int pb = ref Unsafe.Add(ref histogram, (byte)(b >> shift));
+            ref int pc = ref Unsafe.Add(ref histogram, (byte)(c >> shift));
+            ref int pd = ref Unsafe.Add(ref histogram, (byte)(d >> shift));
+            int ia = pa++, ib = pb++, ic = pc++, id = pd++;
+            Unsafe.Add(ref target, ia) = a;
+            Unsafe.Add(ref target, ib) = b;
+            Unsafe.Add(ref target, ic) = c;
+            Unsafe.Add(ref target, id) = d;
+        }
+        for (; i < length; i++)
+        {
+            ushort value = Unsafe.Add(ref source, i);
+            Unsafe.Add(ref target, Unsafe.Add(ref histogram, (byte)(value >> shift))++) = value;
+        }
     }
 
     private static void SortUInt32(Span<uint> values)
@@ -249,8 +269,10 @@ public static partial class Sortz
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SortPrimitiveUInt64(Span<ulong> values)
     {
-        if (values.Length is >= 4096 and <= 65536 &&
-            (TryProjectedCompact(values, Comparer<ulong>.Default, false) || TryBucketUInt64(values)))
+        if (values.Length is >= 512 and <= 65536 &&
+            (values.Length >= 4096 || Vector512.IsHardwareAccelerated) &&
+            (TryProjectedCompact(values, Comparer<ulong>.Default, false) ||
+             (values.Length >= 4096 && TryBucketUInt64(values))))
             return;
         SortUInt64(values);
     }
@@ -718,8 +740,22 @@ public static partial class Sortz
             {
                 values.CopyTo(original);
                 ref T copy = ref MemoryMarshal.GetReference(original);
-                for (int i = 0; i < length; i++)
-                    Unsafe.Add(ref input, i) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, i) & indexMask));
+                int gather = 0;
+                for (; gather <= length - 4; gather += 4)
+                {
+                    int a = (int)((uint)Unsafe.Add(ref keyData, gather) & indexMask);
+                    int b = (int)((uint)Unsafe.Add(ref keyData, gather + 1) & indexMask);
+                    int c = (int)((uint)Unsafe.Add(ref keyData, gather + 2) & indexMask);
+                    int d = (int)((uint)Unsafe.Add(ref keyData, gather + 3) & indexMask);
+                    T x = Unsafe.Add(ref copy, a), y = Unsafe.Add(ref copy, b);
+                    T z = Unsafe.Add(ref copy, c), w = Unsafe.Add(ref copy, d);
+                    Unsafe.Add(ref input, gather) = x;
+                    Unsafe.Add(ref input, gather + 1) = y;
+                    Unsafe.Add(ref input, gather + 2) = z;
+                    Unsafe.Add(ref input, gather + 3) = w;
+                }
+                for (; gather < length; gather++)
+                    Unsafe.Add(ref input, gather) = Unsafe.Add(ref copy, (int)((uint)Unsafe.Add(ref keyData, gather) & indexMask));
 
                 // Most projected keys are distinct. Scan adjacent keys once,
                 // entering collision repair only when their prefixes match.

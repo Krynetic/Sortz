@@ -1355,7 +1355,9 @@ public static partial class Sortz
         TransformDoubleKeys(bits, false);
         try
         {
-            SortUInt64(bits);
+            if (!(bits.Length is >= 512 and <= 1024 && Vector512.IsHardwareAccelerated &&
+                  TryProjectedCompact(bits, Comparer<ulong>.Default, false)))
+                SortUInt64(bits);
         }
         finally
         {
