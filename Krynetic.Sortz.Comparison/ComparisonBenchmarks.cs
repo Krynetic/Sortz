@@ -2,7 +2,6 @@ using System.Globalization;
 using Anoprsst;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Filters;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.NoEmit;
 using Celerity.Sorting;
@@ -21,17 +20,8 @@ public sealed class ComparisonConfig : ManualConfig
 {
     public const int BatchSize = 16;
 
-    public static bool HasSortingNetwork(int count) => count is 27 or 28;
-
     public ComparisonConfig()
     {
-        // Generated sorting networks only support the exact lengths declared below.
-        AddFilter(new SimpleFilter(benchmark =>
-            benchmark.Descriptor.WorkloadMethod.Name != nameof(ComparisonBenchmarks<int>.SortingNetworks) ||
-            benchmark.Parameters.Items.Any(parameter =>
-                parameter.Name == nameof(ComparisonBenchmarks<int>.Count) &&
-                parameter.Value is int count && HasSortingNetwork(count))));
-
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithWarmupCount(20)
@@ -46,7 +36,7 @@ public sealed class ComparisonConfig : ManualConfig
 [Config(typeof(ComparisonConfig))]
 public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
 {
-    [Params(27, 28, 128, 1024, 10000, 100000)]
+    [Params(128, 1024, 10000, 100000)]
     public int Count { get; set; }
 
     [Params(InputPattern.Random, InputPattern.Ascending, InputPattern.Descending, InputPattern.NearlySorted)]
@@ -114,13 +104,10 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
         if (!expected.SequenceEqual(actual))
             throw new InvalidOperationException("Anoprsst returned an incorrect result.");
 
-        if (ComparisonConfig.HasSortingNetwork(Count))
-        {
-            source.CopyTo(actual, 0);
-            SortingNetworkSort(actual);
-            if (!expected.SequenceEqual(actual))
-                throw new InvalidOperationException("SortingNetworks returned an incorrect result.");
-        }
+        source.CopyTo(actual, 0);
+        SortingNetworkSort(actual);
+        if (!expected.SequenceEqual(actual))
+            throw new InvalidOperationException("SortingNetworksMergeSort returned an incorrect result.");
 
         Reset();
     }
@@ -180,7 +167,7 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
-    public void SortingNetworks()
+    public void SortingNetworksMergeSort()
     {
         foreach (var values in arrays) SortingNetworkSort(values);
     }
@@ -193,7 +180,7 @@ public class Int32ComparisonBenchmarks : ComparisonBenchmarks<int>
     protected override void CeleritySort(int[] values) => RadixSort.Sort(values.AsSpan());
     protected override void HpcSort(int[] values) => values.SortRadixLsd();
     protected override void AnoprsstSort(int[] values) => values.AsSpan().WithIComparableOrder().Sort();
-    protected override void SortingNetworkSort(int[] values) => GeneratedSortingNetworks.Sort(values.AsSpan());
+    protected override void SortingNetworkSort(int[] values) => SortingNetworkMerge.Sort(values, Comparer, GeneratedSortingNetworks.Sort);
 }
 
 public class Int64ComparisonBenchmarks : ComparisonBenchmarks<long>
@@ -203,7 +190,7 @@ public class Int64ComparisonBenchmarks : ComparisonBenchmarks<long>
     protected override void CeleritySort(long[] values) => RadixSort.Sort(values.AsSpan());
     protected override void HpcSort(long[] values) => values.SortRadixLsd();
     protected override void AnoprsstSort(long[] values) => values.AsSpan().WithIComparableOrder().Sort();
-    protected override void SortingNetworkSort(long[] values) => GeneratedSortingNetworks.Sort(values.AsSpan());
+    protected override void SortingNetworkSort(long[] values) => SortingNetworkMerge.Sort(values, Comparer, GeneratedSortingNetworks.Sort);
 }
 
 public class StringComparisonBenchmarks : ComparisonBenchmarks<string>
@@ -220,7 +207,7 @@ public class StringComparisonBenchmarks : ComparisonBenchmarks<string>
     protected override void CeleritySort(string[] values) => StringSort.Sort(values.AsSpan());
     protected override void HpcSort(string[] values) => values.SortMergeInPlace(comparer: StringComparer.Ordinal);
     protected override void AnoprsstSort(string[] values) => values.AsSpan().WithOrder(new OrdinalStringOrdering()).Sort();
-    protected override void SortingNetworkSort(string[] values) => GeneratedSortingNetworks.Sort(values.AsSpan(), StringComparer.Ordinal);
+    protected override void SortingNetworkSort(string[] values) => SortingNetworkMerge.Sort(values, Comparer, GeneratedSortingNetworks.Sort);
 }
 
 public class DoubleComparisonBenchmarks : ComparisonBenchmarks<double>
@@ -230,7 +217,7 @@ public class DoubleComparisonBenchmarks : ComparisonBenchmarks<double>
     protected override void CeleritySort(double[] values) => RadixSort.Sort(values.AsSpan());
     protected override void HpcSort(double[] values) => values.SortRadixMsd();
     protected override void AnoprsstSort(double[] values) => values.AsSpan().WithIComparableOrder().Sort();
-    protected override void SortingNetworkSort(double[] values) => GeneratedSortingNetworks.Sort(values.AsSpan());
+    protected override void SortingNetworkSort(double[] values) => SortingNetworkMerge.Sort(values, Comparer, GeneratedSortingNetworks.Sort);
 }
 
 internal readonly struct OrdinalStringOrdering : IOrdering<string>
@@ -238,12 +225,79 @@ internal readonly struct OrdinalStringOrdering : IOrdering<string>
     public bool LessThan(string a, string b) => string.CompareOrdinal(a, b) < 0;
 }
 
-[SortingNetwork(27, typeof(int))]
-[SortingNetwork(28, typeof(int))]
-[SortingNetwork(27, typeof(long))]
-[SortingNetwork(28, typeof(long))]
-[SortingNetwork(27, typeof(double))]
-[SortingNetwork(28, typeof(double))]
-[SortingNetwork(27, typeof(string))]
-[SortingNetwork(28, typeof(string))]
+[SortingNetwork(16, typeof(int))]
+[SortingNetwork(32, typeof(int))]
+[SortingNetwork(64, typeof(int))]
+[SortingNetwork(16, typeof(long))]
+[SortingNetwork(32, typeof(long))]
+[SortingNetwork(64, typeof(long))]
+[SortingNetwork(16, typeof(double))]
+[SortingNetwork(32, typeof(double))]
+[SortingNetwork(64, typeof(double))]
+[SortingNetwork(16, typeof(string))]
+[SortingNetwork(32, typeof(string))]
+[SortingNetwork(64, typeof(string))]
 internal partial class GeneratedSortingNetworks { }
+
+internal static class SortingNetworkMerge
+{
+    private const int BlockSize = 64;
+
+    internal delegate void BlockSorter<T>(Span<T> block);
+
+    // SortingNetworks only generates small fixed-size networks. Sort each run
+    // using the generated code, then merge all runs into one sorted array.
+    // Scratch allocation and all merge work are included in the benchmark.
+    internal static void Sort<T>(T[] values, IComparer<T> comparer, BlockSorter<T> sortBlock)
+    {
+        if (values.Length < 2)
+            return;
+
+        for (int offset = 0; offset < values.Length; offset += BlockSize)
+        {
+            Span<T> block = values.AsSpan(offset, Math.Min(BlockSize, values.Length - offset));
+            // All benchmark lengths use only 64-, 32-, or 16-element runs.
+            // Keep the adapter correct for other lengths as well.
+            if (block.Length is 16 or 32 or BlockSize)
+                sortBlock(block);
+            else
+                block.Sort(comparer);
+        }
+
+        if (values.Length <= BlockSize)
+            return;
+
+        Span<T> source = values;
+        Span<T> destination = new T[values.Length];
+        for (int width = BlockSize; width < values.Length; width *= 2)
+        {
+            for (int start = 0; start < values.Length; start += 2 * width)
+            {
+                int middle = Math.Min(start + width, values.Length);
+                int end = Math.Min(start + 2 * width, values.Length);
+
+                if (middle == end || comparer.Compare(source[middle - 1], source[middle]) <= 0)
+                {
+                    source[start..end].CopyTo(destination[start..end]);
+                    continue;
+                }
+
+                int left = start, right = middle, index = start;
+                while (left < middle && right < end)
+                    destination[index++] = comparer.Compare(source[left], source[right]) <= 0
+                        ? source[left++]
+                        : source[right++];
+
+                source[left..middle].CopyTo(destination[index..]);
+                index += middle - left;
+                source[right..end].CopyTo(destination[index..]);
+            }
+
+            Span<T> temporary = source;
+            source = destination;
+            destination = temporary;
+        }
+
+        source.CopyTo(values);
+    }
+}
