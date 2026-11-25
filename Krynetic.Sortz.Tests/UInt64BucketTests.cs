@@ -12,6 +12,9 @@ public sealed class UInt64BucketTests
     [InlineData(10000)]
     [InlineData(65536)]
     [InlineData(65537)]
+    [InlineData(100003)]
+    [InlineData(262144)]
+    [InlineData(262145)]
     public void FullRangeAndSkewedBuckets(int count)
     {
         var random = new Random(count);

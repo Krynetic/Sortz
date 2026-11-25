@@ -247,6 +247,8 @@ public static partial class Sortz
         if (values.Length is >= 4096 and <= 65536 &&
             (TryProjectedCompact(values, Comparer<ulong>.Default, false) || TryBucketUInt64(values)))
             return;
+        if (values.Length is > 65536 and <= 262144 && TryBucketUInt64(values))
+            return;
         SortUInt64(values);
     }
 
@@ -255,7 +257,7 @@ public static partial class Sortz
     private static bool TryBucketUInt64(Span<ulong> values)
     {
         int length = values.Length;
-        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 9, 13);
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 9, length > 65536 ? 14 : 13);
         int buckets = 1 << width, shift = 64 - width;
         Span<int> counts = stackalloc int[buckets];
         counts.Clear();

@@ -85,11 +85,26 @@ public static partial class Sortz
         int length = values.Length;
         int inversions = 0;
         ref T data = ref MemoryMarshal.GetReference(values);
-        for (int i = 1; i <= 16; i++)
+        // The numeric callers have 32- or 64-bit lanes, so sixteen
+        // adjacent pairs fit exactly in one or two vectors.
+        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
-            if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                ++inversions > 3)
-                return false;
+            int width = Vector512<T>.Count;
+            for (int i = 1; i <= 16; i += width)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector512.LoadUnsafe(ref data, (nuint)i);
+                ulong ordered = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b));
+                inversions += width - BitOperations.PopCount(ordered);
+                if (inversions > 3) return false;
+            }
+        }
+        else
+        {
+            for (int i = 1; i <= 16; i++)
+                if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                    ++inversions > 3)
+                    return false;
         }
 
         // Reject locally ordered prefixes followed by globally random data.
