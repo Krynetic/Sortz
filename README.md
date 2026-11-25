@@ -1,12 +1,12 @@
 # Krynetic.Sortz
 
-High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware-accelerated sorting networks, radix sorting and specialized primitive algorithms, with comparison-based fallbacks for other types and custom comparers.
+The **fastest** .NET sorting library currently!
+
+High-performance, in-place sorting for .NET lists and spans. Sortz uses **hardware-accelerated** sorting networks, radix sorting and specialized primitive algorithms, with comparison-based fallbacks for other types and custom comparers.
 
 ## Performance
 
-### The fastest overall .NET sorting library in our benchmark suite
-
-**Sortz ranks #1 overall by workload wins** against the .NET built-in sorter, YamSort, Celerity.Sorting and HPCsharp in [Sorting library comparison #6](https://github.com/Krynetic/Sortz/actions/runs/45609922336): **58 of 64 workloads (90.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
+**Sortz ranks #1 overall by benchmark wins** against the **.NET built-in**, **YamSort**, **Celerity.Sorting** and **HPCsharp** in [Sorting library comparison #6](https://github.com/Krynetic/Sortz/actions/runs/45609922336): **58 of 64 workloads (90.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
 
 | Competitor | Sortz wins | Geometric mean speedup | Peak speedup |
 |---|---:|---:|---:|
@@ -22,11 +22,15 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses hardware
 | Descending | 16/16 | 7.42× | 7.20× | 11.39× | 14.44× |
 | NearlySorted | 12/16 | 1.56× | 2.71× | 2.75× | 3.34× |
 
-The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (320 timed benchmark cases). Sortz wins all descending workloads and beats every third-party competitor on random inputs. Results include losses, not just selected wins: .NET wins five workloads and Celerity wins one. This is a measured suite-wide ranking, not a universal fastest-library guarantee.
+The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (320 timed benchmark cases).  
+Sortz wins all descending workloads and beats every third-party competitor on random inputs.  
+Results include losses, not just selected wins: .NET wins five workloads and Celerity wins one.  
+This is a measured suite-wide ranking, not a universal fastest-library guarantee.
 
 ### Broader type coverage — random inputs
 
-**Up to 222.04× faster than `List<T>.Sort()`**, with a **5.61× geometric mean speedup**, 63/63 faster cases and 5/63 cases at least 10× faster in [Sorting benchmarks #130](https://github.com/Krynetic/Sortz/actions/runs/45608014802). All 648 tests passed in that workflow.
+**Up to 222.04× faster than `List<T>.Sort()`**, with a **5.61× geometric mean speedup**, 63/63 faster cases and 5/63 cases at least 10× faster in [Sorting benchmarks #130](https://github.com/Krynetic/Sortz/actions/runs/45608014802).  
+All 648 tests passed in that workflow.
 
 | Type | 128 elements | 1,024 elements | 10,000 elements |
 |---|---:|---:|---:|
@@ -52,7 +56,9 @@ The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,
 | string (culture) | 3.69× | 6.25× | 9.15× |
 | object benchmark | 4.01× | 4.60× | 4.46× |
 
-Speedups are competitor mean / Sortz mean (higher is better); geometric means weight each workload equally. Both workflows ran on AMD Ryzen 9 7900X, Ubuntu 24.04.5, .NET 11, BenchmarkDotNet 0.16.0-preview.2. The comparison uses 20 warmups, 40 measured iterations and 16 independent sorts per invocation, with source restoration outside measured work. Results are hardware- and workload-dependent.
+Speedups are **(competitor mean)** / **(Sortz mean)** (higher is better); geometric means weight each workload equally. Both workflows ran on **AMD Ryzen 9 7900X, Ubuntu 24.04.5, .NET 11, BenchmarkDotNet 0.16.0-preview.2**.  
+The comparison uses 20 warmups, 40 measured iterations and 16 independent sorts per invocation, with source restoration outside measured work.  
+Results are hardware- and workload-dependent.
 
 See the [full competitor timings and allocation results](docs/benchmarks.md#competitor-comparison) and [complete primitive benchmark timings](docs/benchmarks.md).
 
@@ -67,7 +73,8 @@ See the [full competitor timings and allocation results](docs/benchmarks.md#comp
 
 ## Installation
 
-Targets .NET 8, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
+Targets **.NET 8**, **.NET 9** and **.NET 11**. Sortz has no additional runtime package dependencies.  
+**No target for .NET 7 and below exist** due non-existent hardware acceleration possible.
 
 | Target | Sorting implementation |
 |---|---|
@@ -75,7 +82,8 @@ Targets .NET 8, .NET 9 and .NET 11. Sortz has no additional runtime package depe
 | `net9.0` | Same optimized implementation, including runtime-selected SIMD. |
 | `net8.0` | Same optimized implementation, including runtime-selected SIMD and radix sorting. |
 
-NuGet selects the most compatible assembly. All three targets share the same sorting source code. Published performance results are measured on .NET 11 only; performance may differ across runtimes.
+NuGet selects the most compatible assembly. All three targets share the same sorting source code.  
+Published performance results are measured on .NET 11 only; performance may differ across runtimes.
 
 Once the package is available on NuGet:
 
