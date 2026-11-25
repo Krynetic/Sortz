@@ -17,7 +17,7 @@ public sealed class AlphabetCompressionTests
             random.Next(100).ToString()).ToArray();
         var expected = (string[])values.Clone();
         Array.Sort(expected, StringComparer.Ordinal);
-        Sorter.Sort(values.AsSpan(), StringComparer.Ordinal);
+        Sortz.Sort(values.AsSpan(), StringComparer.Ordinal);
         Assert.Equal(expected, values);
     }
 }

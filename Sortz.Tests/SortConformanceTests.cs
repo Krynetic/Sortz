@@ -53,7 +53,7 @@ public sealed class SortConformanceTests
         var actual = new List<T>(expected);
         int capacity = actual.Capacity;
         expected.Sort(comparer);
-        actual.SortNext(comparer);
+        actual.Sortz(comparer);
         Assert.Equal(expected.Count, actual.Count);
         Assert.Equal(capacity, actual.Capacity);
         Assert.Equal<T>(expected, actual);

@@ -12,7 +12,7 @@ public sealed class FloatingKeyRotationTests
         Half[] values = bits.Select(BitConverter.UInt16BitsToHalf).ToArray();
         var expected = (Half[])values.Clone();
         Array.Sort(expected);
-        Sorter.Sort(values.AsSpan());
+        Sortz.Sort(values.AsSpan());
         for (int i = 0; i < values.Length; i++)
             Assert.Equal(0, expected[i].CompareTo(values[i]));
         Assert.Equal(Enumerable.Range(0, 65536).Select(i => (ushort)i),
@@ -34,7 +34,7 @@ public sealed class FloatingKeyRotationTests
         float[] values = bits.Select(BitConverter.UInt32BitsToSingle).ToArray();
         var expected = (float[])values.Clone();
         Array.Sort(expected);
-        Sorter.Sort(values.AsSpan());
+        Sortz.Sort(values.AsSpan());
         for (int i = 0; i < length; i++) Assert.Equal(0, expected[i].CompareTo(values[i]));
         Assert.Equal(bits.Order(), values.Select(BitConverter.SingleToUInt32Bits).Order());
     }

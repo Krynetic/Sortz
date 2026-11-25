@@ -24,7 +24,7 @@ public sealed class ExtendedSortTests
         var input = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, double>(bytes.AsSpan()).ToArray();
         Check(input);
         var actual = (double[])input.Clone();
-        Sorter.Sort(actual.AsSpan());
+        Sortz.Sort(actual.AsSpan());
         // Even NaN payloads and signed zero representations must be preserved.
         Assert.Equal(input.Select(BitConverter.DoubleToUInt64Bits).Order(),
             actual.Select(BitConverter.DoubleToUInt64Bits).Order());
@@ -100,7 +100,7 @@ public sealed class ExtendedSortTests
         var expected = input.ToList();
         var actual = input.ToList();
         expected.Sort(comparer);
-        actual.SortNext(comparer);
+        actual.Sortz(comparer);
         Assert.Equal(expected.Count, actual.Count);
         for (int i = 0; i < actual.Count; i++)
             Assert.Equal(0, comparer.Compare(expected[i], actual[i]));

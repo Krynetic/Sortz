@@ -25,7 +25,7 @@ public sealed class ProjectedDoubleTests
             }).ToArray();
             double[] expected = (double[])values.Clone();
             Array.Sort(expected);
-            Sorter.Sort(values.AsSpan());
+            Sortz.Sort(values.AsSpan());
             Assert.Equal(expected, values);
         }
     }

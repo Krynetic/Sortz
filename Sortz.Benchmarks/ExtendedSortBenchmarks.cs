@@ -38,7 +38,7 @@ public abstract class TypedSortBenchmark<T>
     public void SortzNextSort()
     {
         var comparer = Comparer;
-        foreach (var list in lists) Sorter.Sort(CollectionsMarshal.AsSpan(list), comparer);
+        foreach (var list in lists) Sortz.Sort(CollectionsMarshal.AsSpan(list), comparer);
     }
 }
 

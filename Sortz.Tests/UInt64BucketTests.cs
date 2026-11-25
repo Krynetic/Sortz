@@ -26,13 +26,13 @@ public sealed class UInt64BucketTests
             }).ToArray();
             var expected = (ulong[])values.Clone();
             Array.Sort(expected);
-            Sorter.Sort(values.AsSpan());
+            Sortz.Sort(values.AsSpan());
             Assert.Equal(expected, values);
 
             long[] signed = values.Select(x => unchecked((long)x)).Reverse().ToArray();
             var sorted = (long[])signed.Clone();
             Array.Sort(sorted);
-            Sorter.Sort(signed.AsSpan());
+            Sortz.Sort(signed.AsSpan());
             Assert.Equal(sorted, signed);
         }
     }
