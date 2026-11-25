@@ -11,6 +11,8 @@
     <PackageReference Include="YamSort" Version="1.1.0" />
     <PackageReference Include="Celerity.Sorting" Version="3.6.0" />
     <PackageReference Include="HPCsharp" Version="3.19.8" />
+    <PackageReference Include="Anoprsst" Version="1.1.2" />
+    <PackageReference Include="SortingNetworks.SourceGen" Version="0.1.0" />
     <ProjectReference Include="../Krynetic.Sortz/Krynetic.Sortz.csproj" />
   </ItemGroup>
 </Project>
