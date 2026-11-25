@@ -6,25 +6,27 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses **hardwa
 
 ## Performance
 
-**Sortz ranks #1 overall by benchmark wins** against the **.NET built-in**, **YamSort**, **Celerity.Sorting** and **HPCsharp** in [Sorting library comparison #6](https://github.com/Krynetic/Sortz/actions/runs/45609922336): **58 of 64 workloads (90.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
+**Sortz ranks #1 overall by benchmark wins** against the **.NET built-in**, **YamSort**, **Celerity.Sorting**, **HPCsharp**, **Anoprsst** and **SortingNetworksMergeSort** in [Sorting library comparison (PR #17)](https://github.com/Krynetic/Sortz/actions/runs/45633501866?pr=17): **49 of 64 workloads (76.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
 
 | Competitor | Sortz wins | Geometric mean speedup | Peak speedup |
 |---|---:|---:|---:|
-| .NET List<T>.Sort() | 59/64 | 4.16× | 14.38× |
-| YamSort 1.1.0 | 63/64 | 4.56× | 50.38× |
-| Celerity.Sorting 3.6.0 | 63/64 | 5.26× | 23.01× |
-| HPCsharp 3.19.8 | 64/64 | 7.48× | 33.77× |
+| .NET `List<T>.Sort()` | 59/64 | 4.09× | 15.51× |
+| YamSort 1.1.0 | 64/64 | 4.49× | 49.26× |
+| Celerity.Sorting 3.6.0 | 60/64 | 5.22× | 28.40× |
+| HPCsharp 3.19.8 | 64/64 | 7.30× | 40.92× |
+| Anoprsst 1.1.2 | 53/64 | 2.21× | 12.84× |
+| SortingNetworksMergeSort (SourceGen 0.1.0) | 64/64 | 6.31× | 20.50× |
 
-| Input pattern | Fastest of five | vs .NET | vs YamSort | vs Celerity | vs HPCsharp |
-|---|---:|---:|---:|---:|---:|
-| Random | 15/16 | 4.85× | 9.03× | 2.86× | 4.55× |
-| Ascending | 15/16 | 5.34× | 2.45× | 8.53× | 14.23× |
-| Descending | 16/16 | 7.42× | 7.20× | 11.39× | 14.44× |
-| NearlySorted | 12/16 | 1.56× | 2.71× | 2.75× | 3.34× |
+| Input pattern | Fastest of seven | vs .NET | vs YamSort | vs Celerity | vs HPCsharp | vs Anoprsst | vs SortingNetworks |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Random | 14/16 | 4.74× | 8.66× | 2.78× | 4.46× | 2.88× | 6.04× |
+| Ascending | 12/16 | 5.11× | 2.38× | 8.33× | 13.59× | 2.94× | 6.84× |
+| Descending | 15/16 | 7.26× | 7.04× | 11.22× | 13.77× | 2.84× | 9.97× |
+| NearlySorted | 8/16 | 1.59× | 2.79× | 2.86× | 3.40× | 0.99× | 3.86× |
 
-The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (320 timed benchmark cases).  
-Sortz wins all descending workloads and beats every third-party competitor on random inputs.  
-Results include losses, not just selected wins: .NET wins five workloads and Celerity wins one.  
+The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (448 timed benchmark cases).  
+Sortz has the lowest reported mean in 49/64 workloads; Anoprsst wins 9, .NET wins 3 and Celerity wins 3. YamSort, HPCsharp and SortingNetworksMergeSort win none. Small timing differences are not necessarily statistically significant.  
+SortingNetworksMergeSort combines generated sorting networks with a full-array merge adapter; its timings include merging and scratch allocation. It is not a standalone general-purpose SortingNetworks API. Anoprsst may use parallel sorting on larger inputs.  
 This is a measured suite-wide ranking, not a universal fastest-library guarantee.
 
 ### Broader type coverage — random inputs

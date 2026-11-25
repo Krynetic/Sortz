@@ -32,125 +32,131 @@ All times are in nanoseconds (ns) per sort. The input distribution is random, an
 
 ## Competitor comparison
 
-[Sorting library comparison #6](https://github.com/Krynetic/Sortz/actions/runs/45609922336) (commit `39256e5`, 2026-11-25). BenchmarkDotNet 0.16.0-preview.2, .NET 11.0.0, AMD Ryzen 9 7900X, Ubuntu 24.04.5. 4 types × 4 sizes × 4 patterns × 5 implementations = 320 benchmark cases. All completed successfully.
+[Sorting library comparison (PR #17)](https://github.com/Krynetic/Sortz/actions/runs/45633501866?pr=17) (commit `b318bf5`, 2026-11-25). BenchmarkDotNet 0.16.0-preview.2, .NET 11.0.0, AMD Ryzen 9 7900X, Ubuntu 24.04.5. 4 types × 4 sizes × 4 patterns × 7 implementations = 448 benchmark cases. All completed successfully.
 
-The seeded source values are identical across implementations for each workload. Sorted inputs use the same comparer; nearly sorted inputs swap every 31st position with a seeded random position. List buffers are used for .NET, Sortz and YamSort; array buffers for Celerity and HPCsharp. Correctness is validated against a sorted reference during setup. Buffers are restored outside the timed workload. Means are per sort (16 sorts per invocation; 20 warmups, 40 iterations, one launch, in-process no-emit). This is a single-machine benchmark, not a cross-platform guarantee.
+The seeded source values are identical across implementations for each workload. Sorted inputs use the same comparer; nearly sorted inputs swap every 31st position with a seeded random position. List buffers are used for .NET, Sortz and YamSort; array buffers for Celerity, HPCsharp, Anoprsst and SortingNetworksMergeSort. Correctness is validated against a sorted reference during setup. Buffers are restored outside the timed workload. Means are per sort (16 sorts per invocation; 20 warmups, 40 iterations, one launch, in-process no-emit). This is a single-machine benchmark, not a cross-platform guarantee.
+
+SortingNetworksMergeSort combines generated sorting networks with a full-array merge adapter; its timings include merging and scratch allocation. It is not a standalone general-purpose SortingNetworks API. Anoprsst may use parallel sorting on larger inputs.
 
 | Competitor | Sortz wins | Geometric mean speedup | Peak speedup |
 |---|---:|---:|---:|
-| .NET List<T>.Sort() | 59/64 | 4.16× | 14.38× |
-| YamSort 1.1.0 | 63/64 | 4.56× | 50.38× |
-| Celerity.Sorting 3.6.0 | 63/64 | 5.26× | 23.01× |
-| HPCsharp 3.19.8 | 64/64 | 7.48× | 33.77× |
+| .NET `List<T>.Sort()` | 59/64 | 4.09× | 15.51× |
+| YamSort 1.1.0 | 64/64 | 4.49× | 49.26× |
+| Celerity.Sorting 3.6.0 | 60/64 | 5.22× | 28.40× |
+| HPCsharp 3.19.8 | 64/64 | 7.30× | 40.92× |
+| Anoprsst 1.1.2 | 53/64 | 2.21× | 12.84× |
+| SortingNetworksMergeSort (SourceGen 0.1.0) | 64/64 | 6.31× | 20.50× |
 
-| Input pattern | Fastest of five | vs .NET | vs YamSort | vs Celerity | vs HPCsharp |
-|---|---:|---:|---:|---:|---:|
-| Random | 15/16 | 4.85× | 9.03× | 2.86× | 4.55× |
-| Ascending | 15/16 | 5.34× | 2.45× | 8.53× | 14.23× |
-| Descending | 16/16 | 7.42× | 7.20× | 11.39× | 14.44× |
-| NearlySorted | 12/16 | 1.56× | 2.71× | 2.75× | 3.34× |
+| Input pattern | Fastest of seven | vs .NET | vs YamSort | vs Celerity | vs HPCsharp | vs Anoprsst | vs SortingNetworks |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Random | 14/16 | 4.74× | 8.66× | 2.78× | 4.46× | 2.88× | 6.04× |
+| Ascending | 12/16 | 5.11× | 2.38× | 8.33× | 13.59× | 2.94× | 6.84× |
+| Descending | 15/16 | 7.26× | 7.04× | 11.22× | 13.77× | 2.84× | 9.97× |
+| NearlySorted | 8/16 | 1.59× | 2.79× | 2.86× | 3.40× | 0.99× | 3.86× |
 
-Sortz wins 58/64 workloads by lowest reported mean; .NET wins 5, Celerity wins 1, and YamSort and HPCsharp win none. Small timing differences are not necessarily statistically significant.
+Sortz has the lowest reported mean in 49/64 workloads; Anoprsst wins 9, .NET wins 3 and Celerity wins 3. YamSort, HPCsharp and SortingNetworksMergeSort win none. Small timing differences are not necessarily statistically significant.
 
 ### Full mean timings (ns per sort)
 
-Bold indicates the lowest reported mean in each row. Values converted from the reported units, not independently rounded ratios.
+Bold indicates the lowest reported mean in each row. Values are converted from the reported units; speedups use these reported means rather than rounded BenchmarkDotNet ratios.
 
 #### int
 
-| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp |
-|---:|---|---:|---:|---:|---:|---:|
-| 128 | Random | 574.84 | **118.02** | 835.46 | 1010.38 | 1426.88 |
-| 128 | Ascending | 252.77 | **59.87** | 131.97 | 994.17 | 1426.17 |
-| 128 | Descending | 331.61 | **71.61** | 684.96 | 994.33 | 1419.89 |
-| 128 | NearlySorted | 271.79 | **117.86** | 381.84 | 1016.89 | 1429.29 |
-| 1,024 | Random | 6706.95 | **1823.3** | 9630.05 | 4529.49 | 5585.28 |
-| 1,024 | Ascending | 2472.24 | **321.61** | 841.09 | 4691.87 | 5953.62 |
-| 1,024 | Descending | 3588.13 | **431.43** | 3057.91 | 4582.93 | 6063.4 |
-| 1,024 | NearlySorted | 2863.9 | **1806.12** | 4666.91 | 4482.52 | 5616.12 |
-| 10,000 | Random | 241472.3 | **33199.51** | 299222.74 | 42963.34 | 49221.23 |
-| 10,000 | Ascending | 26316.51 | **2947.95** | 6660.23 | 44943.85 | 52029.65 |
-| 10,000 | Descending | 45174.43 | **4118.97** | 29911.04 | 44479.32 | 51469.91 |
-| 10,000 | NearlySorted | 50513.16 | **33960.5** | 56550.3 | 43230.96 | 50674.51 |
-| 100,000 | Random | 3215882.22 | **345390.05** | 4327598.56 | 439348.26 | 506703.93 |
-| 100,000 | Ascending | 327922.32 | **30088.27** | 78296.56 | 446839.71 | 513944.18 |
-| 100,000 | Descending | 595122.73 | **41384.2** | 324053.81 | 447188.71 | 511914.65 |
-| 100,000 | NearlySorted | 678982.7 | **358785.46** | 867524.53 | 453972.1 | 515962.9 |
+| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp | Anoprsst | SortingNetworksMergeSort |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 128 | Random | 582.12 | **117.34** | 813.1 | 987.34 | 1421.05 | 801.81 | 538.68 |
+| 128 | Ascending | 247.99 | **60.61** | 129 | 980.59 | 1391.96 | 93.15 | 374.65 |
+| 128 | Descending | 319.43 | **78.21** | 694.17 | 988.02 | 1393.96 | 92.58 | 457.27 |
+| 128 | NearlySorted | 294.77 | **117.74** | 374.42 | 1009.09 | 1389.52 | 275.19 | 483.08 |
+| 1,024 | Random | 6922.3 | **1802.49** | 9347.77 | 4608.68 | 5529.29 | 9521.27 | 7123.4 |
+| 1,024 | Ascending | 2313.11 | **322.23** | 772.49 | 4614.22 | 5552.33 | 1412.55 | 2390.44 |
+| 1,024 | Descending | 3514.37 | **427.69** | 3065.46 | 4526.02 | 5558.78 | 1411.44 | 4617.48 |
+| 1,024 | NearlySorted | 2946.8 | **1798.33** | 4616.47 | 4614.01 | 5643.2 | 2712.98 | 6458.57 |
+| 10,000 | Random | 242222.2 | **33832.99** | 289999.39 | 42340.05 | 49066.68 | 133564.27 | 234037.16 |
+| 10,000 | Ascending | 26832.98 | **2928.78** | 6668.3 | 44743.61 | 50849.44 | 37602.4 | 23968.57 |
+| 10,000 | Descending | 49449.81 | **3896.45** | 29133.82 | 43964.47 | 50695.78 | 38628.66 | 61294.28 |
+| 10,000 | NearlySorted | 42815.06 | **33306.78** | 56604.55 | 42484.89 | 49077.57 | 46935.77 | 104236.85 |
+| 100,000 | Random | 3251095.89 | **340441.11** | 4163597.73 | 440949.59 | 500689.32 | 683957.15 | 3731021.75 |
+| 100,000 | Ascending | 331479.99 | **29887.97** | 77867.22 | 441023.36 | 508419.08 | 158207.19 | 275151.18 |
+| 100,000 | Descending | 631017.58 | **40690.42** | 318777.79 | 440575.8 | 502600 | 251593.88 | 834016.35 |
+| 100,000 | NearlySorted | 612534.11 | 357721.58 | 857141.25 | 550080.04 | 512815.32 | **237199.5** | 1507624.46 |
 
 #### long
 
-| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp |
-|---:|---|---:|---:|---:|---:|---:|
-| 128 | Random | 590.29 | **374.12** | 848.65 | 1984.92 | 2821.58 |
-| 128 | Ascending | 252.66 | **85.83** | 138.97 | 1950.09 | 2898.87 |
-| 128 | Descending | 321.98 | **97.5** | 753.79 | 1962.59 | 2764.2 |
-| 128 | NearlySorted | **292.79** | 374.84 | 390.54 | 1965.14 | 2863.56 |
-| 1,024 | Random | 7297.4 | **3780.75** | 9959.49 | 10222.95 | 9915.61 |
-| 1,024 | Ascending | 2355.99 | **426.92** | 805.75 | 9511.65 | 10174.59 |
-| 1,024 | Descending | 3752.65 | **502.41** | 3517.5 | 9213.16 | 10149.28 |
-| 1,024 | NearlySorted | **3006.01** | 3803.19 | 4728.96 | 9346.43 | 9785.66 |
-| 10,000 | Random | 240704.47 | **32870.95** | 324750.94 | 91189.97 | 83633.42 |
-| 10,000 | Ascending | 27061.54 | **3996.31** | 6927.61 | 91800.17 | 83036.72 |
-| 10,000 | Descending | 49970.93 | **4238.27** | 35698.45 | 91019.78 | 84305.03 |
-| 10,000 | NearlySorted | 43331.61 | **32786.12** | 59349.04 | 90203.73 | 84481.7 |
-| 100,000 | Random | 3242032.63 | **723555.07** | 4212141.55 | 939283.97 | 872534.32 |
-| 100,000 | Ascending | 347917.71 | **41033.61** | 81768.52 | 944091.76 | 877152.28 |
-| 100,000 | Descending | 638651.07 | **46019.26** | 418421.63 | 963099.94 | 867794.78 |
-| 100,000 | NearlySorted | **622108.83** | 730426.53 | 948711.34 | 956991.97 | 882936.7 |
+| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp | Anoprsst | SortingNetworksMergeSort |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 128 | Random | 559.94 | **378.05** | 817.16 | 1969.89 | 2789.75 | 821.31 | 829.96 |
+| 128 | Ascending | 254.35 | **70.49** | 138.57 | 2001.93 | 2884.66 | 99.58 | 596.43 |
+| 128 | Descending | 347.12 | **94.09** | 715.48 | 1908.64 | 2766.88 | 95.78 | 749.48 |
+| 128 | NearlySorted | **276.13** | 371.79 | 387.15 | 1948.89 | 2750.49 | 305.05 | 836.99 |
+| 1,024 | Random | 6888.83 | **3796.83** | 9867.77 | 9533.36 | 9766.69 | 9445.36 | 11008.38 |
+| 1,024 | Ascending | 2347.8 | **404.53** | 815.94 | 9186.38 | 9836.36 | 1456.48 | 2900.68 |
+| 1,024 | Descending | 3630.55 | **477.04** | 3337.96 | 9236.3 | 9926.58 | 1455.94 | 5494.88 |
+| 1,024 | NearlySorted | **2925.1** | 3751.45 | 4610.26 | 9194.6 | 10113.23 | 3057.67 | 8114.33 |
+| 10,000 | Random | 241770.32 | **32043.82** | 291162.37 | 90564.32 | 82939.1 | 140370.14 | 374745.69 |
+| 10,000 | Ascending | 26530.86 | **3680.59** | 6916.6 | 91240.59 | 82573.29 | 37024.98 | 31496.97 |
+| 10,000 | Descending | 47306.39 | **4181.01** | 35111.67 | 94658.35 | 82710.74 | 38660.61 | 68951.98 |
+| 10,000 | NearlySorted | 49440.64 | **33169.37** | 58816.53 | 90598.22 | 81451.62 | 48284.61 | 123243.37 |
+| 100,000 | Random | 3225952.58 | 716305.81 | 4235137.2 | 934981.98 | 866555.63 | **689621.85** | 5065662.64 |
+| 100,000 | Ascending | 335557.37 | **38272.15** | 80888.65 | 940165.65 | 874942.58 | 184857.74 | 403097.25 |
+| 100,000 | Descending | 617587.52 | **46664.13** | 412431.3 | 933697.08 | 875869.49 | 269049.63 | 935299.08 |
+| 100,000 | NearlySorted | 680829.74 | 708372.3 | 933403.33 | 936539.83 | 873727.32 | **250739.54** | 1945073.06 |
 
 #### double
 
-| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp |
-|---:|---|---:|---:|---:|---:|---:|
-| 128 | Random | **589.9** | 628.8 | 878.7 | 2130.5 | 1918.1 |
-| 128 | Ascending | 249 | **118.6** | 154.2 | 2057.3 | 1543.5 |
-| 128 | Descending | 404.3 | **111.8** | 782.7 | 2156.4 | 1827.3 |
-| 128 | NearlySorted | **338.5** | 626.7 | 476.9 | 2309 | 1768.8 |
-| 1,024 | Random | 8177.6 | **3072.9** | 10552.1 | 10721.3 | 14733.8 |
-| 1,024 | Ascending | 2362.8 | **772** | 934.1 | 10465 | 8787.4 |
-| 1,024 | Descending | 4533.5 | **751.5** | 3501.3 | 10594.9 | 12013.2 |
-| 1,024 | NearlySorted | 4040.6 | **3780.3** | 5154.6 | 10730.2 | 11456.1 |
-| 10,000 | Random | 351080.1 | **32715.5** | 403189.7 | 105745.6 | 336979.3 |
-| 10,000 | Ascending | 32012.6 | **7322.4** | 8307.4 | 101627.6 | 135229.1 |
-| 10,000 | Descending | 60454.2 | **7262.1** | 38866.9 | 102263.4 | 166015.9 |
-| 10,000 | NearlySorted | 58148.6 | **34949.5** | 65658.4 | 103547.6 | 178074.8 |
-| 100,000 | Random | 4637801 | **747162.7** | 5815867.5 | 1228897.9 | 3871185.5 |
-| 100,000 | Ascending | 387572.7 | **74028.9** | 91551.5 | 1041850.4 | 1780787.4 |
-| 100,000 | Descending | 766712.4 | **73073.2** | 431147.8 | 1047021.2 | 2152998.3 |
-| 100,000 | NearlySorted | 862225.9 | **762008.3** | 1056940.6 | 1066520.2 | 2347664.9 |
+| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp | Anoprsst | SortingNetworksMergeSort |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 128 | Random | **569.9** | 620.6 | 878.9 | 2071.4 | 1897.6 | 810.7 | 763.3 |
+| 128 | Ascending | 239 | **120.1** | 153.4 | 2117.9 | 1527 | 141.5 | 585.3 |
+| 128 | Descending | 414 | **111.3** | 781.1 | 2156.2 | 1775.1 | 156.1 | 741.8 |
+| 128 | NearlySorted | 318.8 | 383.2 | 482.9 | 2099.9 | 1743.4 | **268.2** | 944.4 |
+| 1,024 | Random | 8489.9 | **3765.6** | 10459.1 | 10957.3 | 14341.8 | 11918.2 | 11720.4 |
+| 1,024 | Ascending | 2335.7 | **772.7** | 925.2 | 11350.9 | 8653 | 2030.4 | 2835 |
+| 1,024 | Descending | 4561.7 | **742.3** | 3515.5 | 10637.1 | 11754.7 | 2101.5 | 5554.8 |
+| 1,024 | NearlySorted | 3953.1 | 3786.1 | 5067.7 | 10796.6 | 10989 | **3335.7** | 8979.2 |
+| 10,000 | Random | 343853.6 | **33858.2** | 389690.3 | 107807.4 | 338191.5 | 185663.8 | 466634.2 |
+| 10,000 | Ascending | 31921 | **7287.8** | 8517.9 | 100996.1 | 133064.2 | 38109.8 | 30718.1 |
+| 10,000 | Descending | 60537.2 | **6872.4** | 37131.5 | 102097.9 | 161313.7 | 41380.3 | 72297.7 |
+| 10,000 | NearlySorted | 58757.5 | **33160.3** | 62055.7 | 103558.2 | 177631.3 | 42682.4 | 133755.2 |
+| 100,000 | Random | 4608295.2 | **741057.6** | 5742410.6 | 1226026.8 | 3832678.7 | 1056347.4 | 6399810.9 |
+| 100,000 | Ascending | 381303.5 | **74183.4** | 90033.7 | 1035040.5 | 1743592.3 | 197478 | 403409.6 |
+| 100,000 | Descending | 772214.5 | **72735.3** | 424877.7 | 1035872.6 | 2121151.9 | 295697.2 | 989703.2 |
+| 100,000 | NearlySorted | 840880.9 | 751276.9 | 1047567.8 | 1151325.7 | 2340835.4 | **295718.9** | 2179651.4 |
 
-#### string (ordinal)
+#### string
 
-| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp |
-|---:|---|---:|---:|---:|---:|---:|
-| 128 | Random | 2877.3 | **565.4** | 17691 | 1577.1 | 3027.9 |
-| 128 | Ascending | 1181.1 | **199.1** | 2964.4 | 217.6 | 1184.1 |
-| 128 | Descending | 1860.4 | **421.3** | 6089.8 | 1311.8 | 1981.8 |
-| 128 | NearlySorted | 1411 | **585.4** | 9284.7 | 1482.7 | 1394.5 |
-| 1,024 | Random | 34332.3 | **5974.9** | 243047.6 | 14681.5 | 34891.5 |
-| 1,024 | Ascending | 16012.4 | **2439.6** | 25031.6 | 3054.2 | 15272.7 |
-| 1,024 | Descending | 28119 | **3927.1** | 36719.6 | 18268.5 | 28167.5 |
-| 1,024 | NearlySorted | 18021.3 | **6259.8** | 82677.1 | 15637.1 | 18063 |
-| 10,000 | Random | 894776.4 | **67789.7** | 3415430 | 377174.3 | 898899.6 |
-| 10,000 | Ascending | 304892.2 | 54999.5 | 263616.1 | **45386.4** | 313214.4 |
-| 10,000 | Descending | 535349.4 | **67930.6** | 408392.6 | 407081.7 | 533730.6 |
-| 10,000 | NearlySorted | 352543.8 | **75894** | 1083468.5 | 451885.7 | 352129.2 |
-| 100,000 | Random | 13387286.8 | **1096931.7** | 50000232.5 | 5023457.7 | 23473616.8 |
-| 100,000 | Ascending | 4693692.9 | **1001791.5** | 2996439.1 | 1030302.2 | 4284089.2 |
-| 100,000 | Descending | 8551460.4 | **1178676.9** | 4597444.3 | 6981759 | 9798959.5 |
-| 100,000 | NearlySorted | 5662989.3 | **1210656.8** | 12687785 | 4902596.8 | 13801591.8 |
+| Count | Pattern | .NET List.Sort | Sortz | YamSort | Celerity | HPCsharp | Anoprsst | SortingNetworksMergeSort |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 128 | Random | 2915.2 | **587.4** | 17330.2 | 1537.7 | 2922.8 | 2203.1 | 3505.8 |
+| 128 | Ascending | 1127.8 | 247.5 | 2892.1 | **222** | 1118.4 | 494.3 | 2982.3 |
+| 128 | Descending | 1829.8 | **414.3** | 5937.9 | 1286.8 | 1797.5 | 645.2 | 3254 |
+| 128 | NearlySorted | 1325.7 | **584.6** | 9117.5 | 1441.3 | 1322.4 | 627.9 | 3574.5 |
+| 1,024 | Random | 32871.7 | **6280.3** | 238930.4 | 14593.2 | 38668.4 | 26915.7 | 40909.3 |
+| 1,024 | Ascending | 13974.1 | 2945.5 | 24373.2 | **2825.9** | 14229.8 | 7409.4 | 23183.1 |
+| 1,024 | Descending | 24432.7 | **4357.6** | 35974.8 | 17814.2 | 24387.7 | 8681.3 | 28590.5 |
+| 1,024 | NearlySorted | 16675.8 | **6436.2** | 83232.4 | 14881.9 | 16679.8 | 10216.7 | 36614.1 |
+| 10,000 | Random | 899536.6 | **68954.5** | 3396984.6 | 363359.6 | 891612.2 | 288457.3 | 1082894.8 |
+| 10,000 | Ascending | 287526.2 | 65441.9 | 255481.7 | **43114.8** | 287871.8 | 125259.4 | 406141.1 |
+| 10,000 | Descending | 479710.8 | **76474.3** | 401493.7 | 404822.2 | 475937.6 | 159422.5 | 513933.7 |
+| 10,000 | NearlySorted | 342893.5 | **75492.5** | 1070309.2 | 438582.6 | 338547.2 | 138820.6 | 773186.8 |
+| 100,000 | Random | 13231495.1 | **1067993.4** | 48865954.9 | 4893845.6 | 23362456.4 | 1689223.9 | 16511639.5 |
+| 100,000 | Ascending | 4516854.5 | 1074378.7 | 2926336.1 | 986939.7 | 4141200.2 | **711016.2** | 5369634 |
+| 100,000 | Descending | 7861494.5 | 1226617.5 | 4689820.2 | 6733931.5 | 9327515 | **882670.9** | 7660431.5 |
+| 100,000 | NearlySorted | 5437526.5 | 1173497.6 | 12583575.3 | 4723278.7 | 13645283.1 | **858128.2** | 11895650.5 |
 
-### Managed allocations
+### Managed allocation results
 
-BenchmarkDotNet MemoryDiagnoser reported no managed allocations for 64/64 Sortz cases. A dash is the reporter's no-allocation value; temporary stack or pooled storage is not represented by this metric.
-
-| Implementation | Cases with no reported allocation | Cases with reported allocation |
+| Implementation | Zero reported allocation | Nonzero reported allocation |
 |---|---:|---:|
 | DefaultListSort | 48 | 16 |
 | SortzSort | 64 | 0 |
 | YamSort | 64 | 0 |
 | CeleritySorting | 64 | 0 |
 | HPCsharp | 0 | 64 |
+| Anoprsst | 32 | 32 |
+| SortingNetworksMergeSort | 0 | 64 |
+
+A dash in the BenchmarkDotNet Allocated column is counted as zero reported managed allocation, not as proof of no scratch memory or allocation-free cold starts.
 
 ### Reproduce the comparison
 
