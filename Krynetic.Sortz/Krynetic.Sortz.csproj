@@ -3,7 +3,7 @@
     <RootNamespace>Krynetic.Sortz</RootNamespace>
     <AssemblyName>Krynetic.Sortz</AssemblyName>
     <OutputType>Library</OutputType>
-    <TargetFrameworks>netstandard2.1;net9.0;net11.0</TargetFrameworks>
+    <TargetFrameworks>net5.0;net9.0;net11.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
@@ -26,10 +26,10 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net5.0'">
     <Compile Remove="Sortz.cs;Sortz.Primitives.cs;SimdSort.cs;PrimitiveSimdSort.cs" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'netstandard2.1'">
+  <ItemGroup Condition="'$(TargetFramework)' != 'net5.0'">
     <Compile Remove="Sortz.Portable.cs" />
   </ItemGroup>
 

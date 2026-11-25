@@ -67,15 +67,15 @@ See the [full competitor timings and allocation results](docs/benchmarks.md#comp
 
 ## Installation
 
-Targets .NET Standard 2.1, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
+Targets .NET 5, .NET 9 and .NET 11. Sortz has no additional runtime package dependencies.
 
 | Target | Sorting implementation |
 |---|---|
 | `net11.0` | Full optimized implementation; all published benchmarks run on this target. |
 | `net9.0` | Same optimized implementation, including runtime-selected SIMD. |
-| `netstandard2.1` | Portable, allocation-free span introsort with ordered-input detection; list sorting delegates to `List<T>.Sort` because the backing span API is unavailable. |
+| `net5.0` | Portable, allocation-free introsort with ordered-input detection; lists and spans both use the Sortz implementation via direct backing-span access. |
 
-NuGet selects the most compatible assembly. Published .NET 11 performance results do not apply to the portable implementation.
+NuGet selects the most compatible assembly. Published .NET 11 performance results do not apply to the portable implementation. .NET 5 is an end-of-support compatibility target; use a supported runtime for new deployments.
 
 Once the package is available on NuGet:
 

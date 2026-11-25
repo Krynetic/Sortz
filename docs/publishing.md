@@ -23,7 +23,7 @@ The default package version is defined in the library project. Override it for a
 dotnet pack Krynetic.Sortz/Krynetic.Sortz.csproj -c Release -p:Version=0.1.0 -o artifacts/nuget
 ```
 
-This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. The NuGet package contains library assemblies under `lib/netstandard2.1/`, `lib/net9.0/` and `lib/net11.0/`. Tests and benchmarks are not packed. Use the .NET 11 SDK with the .NET 9 runtime installed to run the complete test matrix.
+This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. The NuGet package contains library assemblies under `lib/net5.0/`, `lib/net9.0/` and `lib/net11.0/`. Tests and benchmarks are not packed. Use the .NET 11 SDK with the .NET 9 runtime installed to run the conformance matrix, including the net5.0 asset. CI additionally runs a smoke executable on the actual .NET 5 runtime in a Docker container.
 
 After choosing a license, verifying availability or ownership of the package ID, and obtaining a NuGet.org API key, publish the package manually:
 
