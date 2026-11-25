@@ -2,11 +2,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sortz", "Sortz\Sortz.csproj", "{A125AA01-1D23-4F12-A000-000000000001}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Krynetic.Sortz", "Krynetic.Sortz\Krynetic.Sortz.csproj", "{A125AA01-1D23-4F12-A000-000000000001}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sortz.Tests", "Sortz.Tests\Sortz.Tests.csproj", "{A125AA01-1D23-4F12-A000-000000000002}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Krynetic.Sortz.Tests", "Krynetic.Sortz.Tests\Krynetic.Sortz.Tests.csproj", "{A125AA01-1D23-4F12-A000-000000000002}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sortz.Benchmarks", "Sortz.Benchmarks\Sortz.Benchmarks.csproj", "{A125AA01-1D23-4F12-A000-000000000003}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Krynetic.Sortz.Benchmarks", "Krynetic.Sortz.Benchmarks\Krynetic.Sortz.Benchmarks.csproj", "{A125AA01-1D23-4F12-A000-000000000003}"
 EndProject
 Global
  GlobalSection(SolutionConfigurationPlatforms) = preSolution

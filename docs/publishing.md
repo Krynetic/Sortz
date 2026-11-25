@@ -4,8 +4,8 @@ Maintainer documentation. These commands are manual; the repository does not aut
 
 
 ```sh
-dotnet build Sortz.sln -c Release
-dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
+dotnet build Krynetic.Sortz.sln -c Release
+dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
 ```
 
 ## Create the NuGet packages
@@ -13,13 +13,13 @@ dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
 Create a package locally from the library project:
 
 ```sh
-dotnet pack Sortz/Sortz.csproj -c Release -o artifacts/nuget
+dotnet pack Krynetic.Sortz/Krynetic.Sortz.csproj -c Release -o artifacts/nuget
 ```
 
 The default package version is defined in the library project. Override it for a release:
 
 ```sh
-dotnet pack Sortz/Sortz.csproj -c Release -p:Version=0.1.0 -o artifacts/nuget
+dotnet pack Krynetic.Sortz/Krynetic.Sortz.csproj -c Release -p:Version=0.1.0 -o artifacts/nuget
 ```
 
 This produces `Krynetic.Sortz.0.1.0.nupkg` and `Krynetic.Sortz.0.1.0.snupkg` in `artifacts/nuget/`. Tests and benchmarks are not packed.

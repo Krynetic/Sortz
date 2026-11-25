@@ -133,8 +133,8 @@ When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized pa
 ## Build and test
 
 ```sh
-dotnet build Sortz.sln -c Release
-dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
+dotnet build Krynetic.Sortz.sln -c Release
+dotnet test Krynetic.Sortz.Tests/Krynetic.Sortz.Tests.csproj -c Release
 ```
 
 ## Run benchmarks
@@ -142,7 +142,7 @@ dotnet test Sortz.Tests/Sortz.Tests.csproj -c Release
 From the repository root, using the .NET 11 SDK:
 
 ```sh
-dotnet run -c Release --project Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
+dotnet run -c Release --project Krynetic.Sortz.Benchmarks -- --filter '*SortBenchmarks*' --exporters json
 ```
 
 This runs the sorting comparison suite. To discover available benchmarks, select individual types, or locate the reports, see [benchmark documentation](docs/benchmarks.md).

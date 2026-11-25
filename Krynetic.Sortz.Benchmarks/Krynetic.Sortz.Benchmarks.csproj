@@ -11,7 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.2" />
-    <ProjectReference Include="../Sortz/Sortz.csproj" />
-    <Compile Include="../Sortz.Tests/SortInputs.cs" Link="SortInputs.cs" />
+    <ProjectReference Include="../Krynetic.Sortz/Krynetic.Sortz.csproj" />
+    <Compile Include="../Krynetic.Sortz.Tests/SortInputs.cs" Link="SortInputs.cs" />
   </ItemGroup>
 </Project>
