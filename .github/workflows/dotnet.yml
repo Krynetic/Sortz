@@ -1,5 +1,7 @@
 name: .NET 11 CI
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+  push:
 jobs:
   test:
     runs-on: self-hosted
