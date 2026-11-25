@@ -341,6 +341,22 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 int moved = 0;
+                // Common on large sparse 64-bit inputs: move an entire
+                // trailing run before falling back to scalar/galloping merge.
+                // Ordered SIMD comparison rejects NaNs, leaving exact
+                // CompareTo semantics to the scalar fallback.
+                if (length >= 4096 && Unsafe.SizeOf<T>() == 8 &&
+                    Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && left >= 7)
+                {
+                    var run = Vector512.LoadUnsafe(ref data, (nuint)(left - 7));
+                    if (Vector512.GreaterThanAll(run, Vector512.Create(key)))
+                    {
+                        run.StoreUnsafe(ref data, (nuint)(output - 7));
+                        left -= 8;
+                        output -= 8;
+                        moved = 8;
+                    }
+                }
                 while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);

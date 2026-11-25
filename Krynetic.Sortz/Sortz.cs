@@ -1141,7 +1141,14 @@ public static partial class Sortz
             keys[i] = (int)((prefix << indexBits) | (uint)i);
         }
 
-        if (count <= 256) SortInt32(keys);
+        if (count <= 256)
+        {
+            // The packed keys retain every original index, so a successful
+            // sparse swap repair avoids the full sorting network. A rejected
+            // repair still leaves a permutation for the regular integer sort.
+            if (count < 64 || !Vector512.IsHardwareAccelerated || !TrySmallSwapRepair(keys))
+                SortInt32(keys);
+        }
         else SortPrefix32(keys, indexBits, units * width);
 
         if (count <= 128)

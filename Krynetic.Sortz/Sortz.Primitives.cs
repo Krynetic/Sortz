@@ -237,8 +237,21 @@ public static partial class Sortz
             SimdSort.SortSmallMapped64<long>(bits);
             return;
         }
+        // The high-digit partition already separates negative and nonnegative
+        // keys. Rotate bucket indices instead of rewriting the entire input
+        // twice; unsigned comparisons inside a single bucket remain valid.
+        bool largeBucketCandidate = bits.Length is > 65536 and <= 262144;
+        if (largeBucketCandidate && TryBucketUInt64(bits, signed: true))
+            return;
+
         XorKeys(bits, 0x8000000000000000UL);
-        try { SortPrimitiveUInt64(bits); }
+        try
+        {
+            // The signed bucket probe was non-mutating on rejection. Do not
+            // repeat the identical histogram on the transformed input.
+            if (largeBucketCandidate) SortUInt64(bits);
+            else SortPrimitiveUInt64(bits);
+        }
         finally { XorKeys(bits, 0x8000000000000000UL); }
     }
 
@@ -262,17 +275,18 @@ public static partial class Sortz
 
     // A single high-digit scatter, then exact local sorting into the original
     // destination. Reject dense/skewed distributions before touching the input.
-    private static bool TryBucketUInt64(Span<ulong> values)
+    private static bool TryBucketUInt64(Span<ulong> values, bool signed = false)
     {
         int length = values.Length;
         int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 9, length > 65536 ? 14 : 13);
         int buckets = 1 << width, shift = 64 - width;
+        int bucketXor = signed ? buckets >> 1 : 0;
         Span<int> counts = stackalloc int[buckets];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
         ref ulong input = ref MemoryMarshal.GetReference(values);
         for (int i = 0; i < length; i++)
-            if (++Unsafe.Add(ref h, (int)(Unsafe.Add(ref input, i) >> shift)) > 48)
+            if (++Unsafe.Add(ref h, (int)(Unsafe.Add(ref input, i) >> shift) ^ bucketXor) > 48)
                 return false;
 
         PrefixPrimitive(counts);
@@ -285,7 +299,7 @@ public static partial class Sortz
             for (int i = 0; i < length; i++)
             {
                 ulong x = Unsafe.Add(ref input, i);
-                Unsafe.Add(ref output, Unsafe.Add(ref h, (int)(x >> shift))++) = x;
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (int)(x >> shift) ^ bucketXor)++) = x;
             }
 
             int start = 0;
