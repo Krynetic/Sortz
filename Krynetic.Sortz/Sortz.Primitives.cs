@@ -151,11 +151,6 @@ public static partial class Sortz
         if (TryOrderedInteger(values)) return;
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
-        if (Avx512Vbmi2.IsSupported && length is >= 256 and <= 2048)
-        {
-            SortCompressedPartition(values);
-            return;
-        }
         if (Avx512BW.IsSupported && length <= 1024)
         {
             PrimitiveSimdSort.SortUInt16(values);

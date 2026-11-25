@@ -135,7 +135,7 @@ internal static class PrimitiveSimdSort
                         Vector512.Max(l1, r1).StoreUnsafe(ref data, d);
                     }
                 }
-                for (int distance = half / 2; distance >= lanes; distance /= 2)
+                for (int distance = half / 2; distance > lanes; distance /= 2)
                     for (int block = 0; block < width; block += distance * 2)
                         for (int i = block; i < block + distance; i += lanes)
                         {
@@ -145,10 +145,26 @@ internal static class PrimitiveSimdSort
                             Vector512.Min(left, right).StoreUnsafe(ref data, a);
                             Vector512.Max(left, right).StoreUnsafe(ref data, b);
                         }
-                for (int i = 0; i < width; i += lanes)
+                // Finish the adjacent-vector stage and each lane network
+                // in registers, avoiding a store/reload of both intermediates.
+                if (half > lanes)
                 {
-                    nuint offset = (nuint)(start + i);
-                    MergeVector(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
+                    for (int i = 0; i < width; i += lanes * 2)
+                    {
+                        nuint a = (nuint)(start + i), b = (nuint)(start + i + lanes);
+                        var left = Vector512.LoadUnsafe(ref data, a);
+                        var right = Vector512.LoadUnsafe(ref data, b);
+                        MergeVector(Vector512.Min(left, right)).StoreUnsafe(ref data, a);
+                        MergeVector(Vector512.Max(left, right)).StoreUnsafe(ref data, b);
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < width; i += lanes)
+                    {
+                        nuint offset = (nuint)(start + i);
+                        MergeVector(Vector512.LoadUnsafe(ref data, offset)).StoreUnsafe(ref data, offset);
+                    }
                 }
             }
         }

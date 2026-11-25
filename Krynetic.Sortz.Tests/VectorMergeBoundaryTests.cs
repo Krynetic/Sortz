@@ -2,9 +2,18 @@ using Xunit;
 
 namespace Krynetic.Sortz.Tests;
 
-public sealed class CompressedPartitionTests
+public sealed class VectorMergeBoundaryTests
 {
     [Theory]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(33)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
     [InlineData(255)]
     [InlineData(256)]
     [InlineData(257)]
@@ -15,7 +24,7 @@ public sealed class CompressedPartitionTests
     [InlineData(10000)]
     [InlineData(16384)]
     [InlineData(16385)]
-    public void NumericPartitionsPreserveValuesAndSliceBounds(int count)
+    public void NumericSortsPreserveValuesAndSliceBounds(int count)
     {
         var random = new Random(count);
         for (int pattern = 0; pattern < 6; pattern++)
