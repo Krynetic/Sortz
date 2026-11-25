@@ -9,6 +9,11 @@ using YamSort;
 
 namespace Krynetic.Sortz.Comparison;
 
+public enum InputPattern
+{
+    Random, Ascending, Descending, NearlySorted
+}
+
 public sealed class ComparisonConfig : ManualConfig
 {
     public const int BatchSize = 16;
@@ -32,6 +37,9 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     [Params(128, 1024, 10000, 100000)]
     public int Count { get; set; }
 
+    [Params(InputPattern.Random, InputPattern.Ascending, InputPattern.Descending, InputPattern.NearlySorted)]
+    public InputPattern Pattern { get; set; }
+
     private T[] source = null!;
     private List<T>[] lists = null!;
     private T[][] arrays = null!;
@@ -49,6 +57,21 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
         source = new T[Count];
         for (int i = 0; i < Count; i++)
             source[i] = CreateValue(random);
+
+        if (Pattern != InputPattern.Random)
+        {
+            Array.Sort(source, Comparer);
+            if (Pattern == InputPattern.Descending)
+                Array.Reverse(source);
+            else if (Pattern == InputPattern.NearlySorted)
+            {
+                for (int i = 0; i < source.Length; i += 31)
+                {
+                    int j = random.Next(source.Length);
+                    (source[i], source[j]) = (source[j], source[i]);
+                }
+            }
+        }
 
         lists = new List<T>[ComparisonConfig.BatchSize];
         arrays = new T[ComparisonConfig.BatchSize][];
