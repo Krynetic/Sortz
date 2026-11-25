@@ -1,0 +1,43 @@
+name: Sorting library comparison
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Krynetic.Sortz.Comparison/**'
+      - '.github/workflows/comparison.yaml'
+permissions:
+  contents: read
+jobs:
+  comparison:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build comparison project
+        run: dotnet build Krynetic.Sortz.Comparison -c Release
+      - name: Run comparison benchmarks
+        run: dotnet run -c Release --no-build --project Krynetic.Sortz.Comparison -- --filter '*ComparisonBenchmarks*' --exporters json
+      - name: Publish results
+        if: always()
+        run: |
+          found=0
+          for report in BenchmarkDotNet.Artifacts/results/*-report-github.md; do
+            if [ -f "$report" ]; then
+              found=1
+              {
+                printf '## %s\n\n' "$(basename "$report" -report-github.md)"
+                cat "$report"
+                printf '\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No comparison reports were generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: comparison-results
+          path: BenchmarkDotNet.Artifacts/results/
+          if-no-files-found: warn
