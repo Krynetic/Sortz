@@ -17,9 +17,8 @@ public sealed class SortBenchmarkConfig : ManualConfig
             .WithWarmupCount(30)
             .WithIterationCount(60)
             .WithLaunchCount(1)
-            // Reset runs once per iteration, not once per invocation.
-            .WithInvocationCount(1)
-            .WithUnrollFactor(1)
+            .WithInvocationCount(16)
+            .WithUnrollFactor(16)
         );
     }
 }
