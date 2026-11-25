@@ -228,6 +228,15 @@ public static partial class Sortz
         if (TryOrderedInteger(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<long, ulong>(values);
+        if (Vector512.IsHardwareAccelerated && bits.Length <= 128)
+        {
+            SimdSort.SortSmallMapped64<long>(bits);
+            return;
+        }
+
+        if (bits.Length is > 65536 and <= 262144 && TryBucketInt64(bits))
+            return;
+
         XorKeys(bits, 0x8000000000000000UL);
         try { SortPrimitiveUInt64(bits); }
         finally { XorKeys(bits, 0x8000000000000000UL); }
@@ -275,6 +284,94 @@ public static partial class Sortz
             {
                 ulong x = Unsafe.Add(ref input, i);
                 Unsafe.Add(ref output, Unsafe.Add(ref h, (int)(x >> shift))++) = x;
+            }
+
+            int start = 0;
+            for (int b = 0; b < buckets; b++)
+            {
+                int end = Unsafe.Add(ref h, b), size = end - start;
+                if (size == 0) continue;
+                ref ulong src = ref Unsafe.Add(ref output, start);
+                ref ulong dst = ref Unsafe.Add(ref input, start);
+                ulong a = src;
+                if (size == 1) dst = a;
+                else if (size == 2)
+                {
+                    ulong z = Unsafe.Add(ref src, 1);
+                    dst = Math.Min(a, z);
+                    Unsafe.Add(ref dst, 1) = Math.Max(a, z);
+                }
+                else if (size == 3)
+                {
+                    ulong z = Unsafe.Add(ref src, 1), d = Unsafe.Add(ref src, 2);
+                    ExchangeUInt64(ref a, ref z);
+                    ExchangeUInt64(ref z, ref d);
+                    ExchangeUInt64(ref a, ref z);
+                    dst = a;
+                    Unsafe.Add(ref dst, 1) = z;
+                    Unsafe.Add(ref dst, 2) = d;
+                }
+                else if (size == 4)
+                {
+                    ulong z = Unsafe.Add(ref src, 1), d = Unsafe.Add(ref src, 2), e = Unsafe.Add(ref src, 3);
+                    ExchangeUInt64(ref a, ref z);
+                    ExchangeUInt64(ref d, ref e);
+                    ExchangeUInt64(ref a, ref d);
+                    ExchangeUInt64(ref z, ref e);
+                    ExchangeUInt64(ref z, ref d);
+                    dst = a;
+                    Unsafe.Add(ref dst, 1) = z;
+                    Unsafe.Add(ref dst, 2) = d;
+                    Unsafe.Add(ref dst, 3) = e;
+                }
+                else
+                {
+                    dst = a;
+                    for (int i = 1; i < size; i++)
+                    {
+                        ulong x = Unsafe.Add(ref src, i);
+                        int j = i;
+                        while (j > 0 && Unsafe.Add(ref dst, j - 1) > x)
+                        {
+                            Unsafe.Add(ref dst, j) = Unsafe.Add(ref dst, j - 1);
+                            j--;
+                        }
+                        Unsafe.Add(ref dst, j) = x;
+                    }
+                }
+                start = end;
+            }
+            return true;
+        }
+        finally { if (rented is not null) ArrayPool<ulong>.Shared.Return(rented); }
+    }
+
+    // Signed high-digit rotation; unsigned bucket implementation remains unchanged.
+    private static bool TryBucketInt64(Span<ulong> values)
+    {
+        int length = values.Length;
+        int width = Math.Clamp(BitOperations.Log2((uint)length) - 1, 9, 14);
+        int buckets = 1 << width, shift = 64 - width;
+        int bucketXor = buckets >> 1;
+        Span<int> counts = stackalloc int[buckets];
+        counts.Clear();
+        ref int h = ref MemoryMarshal.GetReference(counts);
+        ref ulong input = ref MemoryMarshal.GetReference(values);
+        for (int i = 0; i < length; i++)
+            if (++Unsafe.Add(ref h, (int)(Unsafe.Add(ref input, i) >> shift) ^ bucketXor) > 48)
+                return false;
+
+        PrefixPrimitive(counts);
+        ulong[]? rented = null;
+        Span<ulong> scratch = length <= 8192 ? stackalloc ulong[length] :
+            (rented = ArrayPool<ulong>.Shared.Rent(length)).AsSpan(0, length);
+        try
+        {
+            ref ulong output = ref MemoryMarshal.GetReference(scratch);
+            for (int i = 0; i < length; i++)
+            {
+                ulong x = Unsafe.Add(ref input, i);
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (int)(x >> shift) ^ bucketXor)++) = x;
             }
 
             int start = 0;
