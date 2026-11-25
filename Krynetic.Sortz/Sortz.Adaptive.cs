@@ -119,6 +119,86 @@ public static partial class Sortz
         return true;
     }
 
+    // For small, sparsely permuted arrays, identify displaced positions rather
+    // than compacting and merging the entire array. Each inversion must have
+    // a selected endpoint; verify only the changed adjacency pairs afterwards.
+    // A rejected repair still leaves a valid permutation for the general sort.
+    private static bool TrySmallSwapRepair<T>(Span<T> values)
+        where T : unmanaged, IComparable<T>
+    {
+        ref T data = ref MemoryMarshal.GetReference(values);
+        int length = values.Length;
+        int width = Vector512<T>.Count;
+        Span<int> positions = stackalloc int[24];
+        int count = 0, inversions = 0;
+        for (int start = 0; start < length - 1; start += width)
+        {
+            int pairs = Math.Min(width, length - 1 - start);
+            ulong mask;
+            if (pairs == width)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)start);
+                var b = Vector512.LoadUnsafe(ref data, (nuint)(start + 1));
+                mask = ~Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b))
+                    & ((1UL << width) - 1);
+            }
+            else
+            {
+                mask = 0;
+                for (int k = 0; k < pairs; k++)
+                    if (Unsafe.Add(ref data, start + k).CompareTo(
+                        Unsafe.Add(ref data, start + k + 1)) > 0)
+                        mask |= 1UL << k;
+            }
+
+            inversions += BitOperations.PopCount(mask);
+            // Avoid doing scalar repair work on obviously random inputs.
+            if ((start < 16 && inversions > 5) || inversions > 12)
+                return false;
+
+            while (mask != 0)
+            {
+                int p = start + BitOperations.TrailingZeroCount(mask);
+                mask &= mask - 1;
+                T a = Unsafe.Add(ref data, p), b = Unsafe.Add(ref data, p + 1);
+                if (a.CompareTo(b) <= 0) continue; // exact NaN ordering
+                bool left = p == 0 || Unsafe.Add(ref data, p - 1).CompareTo(b) <= 0;
+                bool right = p + 2 == length || a.CompareTo(Unsafe.Add(ref data, p + 2)) <= 0;
+                if (!left && !right) return false;
+                if (left && (count == 0 || positions[count - 1] != p))
+                    positions[count++] = p;
+                if (right && (count == 0 || positions[count - 1] != p + 1))
+                    positions[count++] = p + 1;
+            }
+        }
+
+        if (count == 0) return true;
+        Span<T> displaced = stackalloc T[24];
+        for (int i = 0; i < count; i++)
+        {
+            T key = Unsafe.Add(ref data, positions[i]);
+            int j = i;
+            while (j > 0 && displaced[j - 1].CompareTo(key) > 0)
+            {
+                displaced[j] = displaced[j - 1];
+                j--;
+            }
+            displaced[j] = key;
+        }
+        for (int i = 0; i < count; i++)
+            Unsafe.Add(ref data, positions[i]) = displaced[i];
+
+        for (int i = 0; i < count; i++)
+        {
+            int p = positions[i];
+            T value = Unsafe.Add(ref data, p);
+            if ((p != 0 && Unsafe.Add(ref data, p - 1).CompareTo(value) > 0) ||
+                (p + 1 != length && value.CompareTo(Unsafe.Add(ref data, p + 1)) > 0))
+                return false;
+        }
+        return true;
+    }
+
     // Keep a monotonic subsequence and sort only the discarded elements.
     // Limit scratch to one eighth of the input; if the estimate was wrong,
     // reconstruct the permutation and let the existing radix path finish.

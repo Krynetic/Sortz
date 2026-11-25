@@ -1356,7 +1356,10 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (values.Length >= 64 && TrySparseRepair(values))
+        if (values.Length >= 64 &&
+            (values.Length <= 256 && Vector512.IsHardwareAccelerated
+                ? TrySmallSwapRepair(values)
+                : TrySparseRepair(values)))
             return;
 
         if (values.Length <= 32)
@@ -1381,6 +1384,12 @@ public static partial class Sortz
         Span<ulong> bits = MemoryMarshal.Cast<double, ulong>(numbers);
         if (bits.Length < 2)
             return;
+
+        if (Vector512.IsHardwareAccelerated && bits.Length is > 32 and <= 128)
+        {
+            SimdSort.SortSmallMapped64<double>(bits);
+            return;
+        }
 
         TransformDoubleKeys(bits, false);
         try
