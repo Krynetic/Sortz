@@ -124,12 +124,12 @@ public static partial class Sortz
             int frequency = Unsafe.Add(ref h, i);
             if (striped)
                 frequency += Unsafe.Add(ref h, i + 256) + Unsafe.Add(ref h, i + 512) + Unsafe.Add(ref h, i + 768);
-            if (frequency == 0) continue;
             byte value = (byte)(i ^ sign);
+            // Empty buckets can also write speculatively: the next nonempty
+            // bucket overwrites them. Keep the fast path independent of occupancy.
             if (frequency <= 8 && offset <= values.Length - 8)
-                // The following buckets overwrite any excess bytes; never write outside the span.
                 Unsafe.WriteUnaligned(ref Unsafe.Add(ref data, offset), 0x0101010101010101UL * value);
-            else
+            else if (frequency != 0)
                 values.Slice(offset, frequency).Fill(value);
             offset += frequency;
         }
