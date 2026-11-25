@@ -234,6 +234,21 @@ internal static class SimdSort
         }
     }
 
+    private static readonly Vector512<int> BucketLaneIndices = Vector512.Create(
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void SortBucketInt32(ref int source, ref int destination, int count)
+    {
+        var valid = Vector512.LessThan(BucketLaneIndices, Vector512.Create(count));
+        var values = Vector512.ConditionalSelect(valid, Vector512.LoadUnsafe(ref source), Vector512.Create(int.MaxValue));
+        values = SortVectorInt32(values);
+        // Write back into the full-capacity source bucket; only its valid
+        // prefix is copied to the compact output.
+        values.StoreUnsafe(ref source);
+        MemoryMarshal.CreateReadOnlySpan(ref source, count).CopyTo(MemoryMarshal.CreateSpan(ref destination, count));
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector512<int> SortVectorInt32(Vector512<int> v)
     {

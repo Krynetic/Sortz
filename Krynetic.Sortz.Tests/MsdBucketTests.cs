@@ -38,6 +38,29 @@ public sealed class MsdBucketTests
         }
     }
 
+    [Theory]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    public void FullAndPartialFixedBuckets(int occupancy)
+    {
+        // The uppermost bucket includes actual int.MaxValue, not just padding.
+        var input = new int[8192];
+        var random = new Random(occupancy);
+        for (int i = 0; i < input.Length; i++)
+        {
+            uint bucket = (uint)(i / occupancy) & 4095u;
+            if ((i / occupancy & 1) == 0) bucket = 4095u - bucket;
+            uint key = (bucket << 20) | (uint)random.Next(1 << 20);
+            input[i] = unchecked((int)(key ^ 0x80000000u));
+        }
+        input[0] = int.MaxValue;
+        input[1] = int.MaxValue;
+        Check(input);
+    }
+
     private static void Check<T>(T[] input)
     {
         T[] expected = (T[])input.Clone();

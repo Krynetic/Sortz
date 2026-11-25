@@ -376,20 +376,55 @@ public static partial class Sortz
                 if (count == 0) continue;
                 ref int a = ref Unsafe.Add(ref scratch, b * Capacity);
                 ref int dst = ref Unsafe.Add(ref source, written);
-                // Speculative insertion using compare/exchange without a
-                // data-dependent search branch for these tiny buckets.
-                dst = a;
-                for (int i = 1; i < count; i++)
+                if (count == 1)
+                    dst = a;
+                else if (count == 2)
                 {
-                    int carry = Unsafe.Add(ref a, i);
-                    for (int j = 0; j < i; j++)
+                    int x = a, y = Unsafe.Add(ref a, 1);
+                    dst = Math.Min(x, y);
+                    Unsafe.Add(ref dst, 1) = Math.Max(x, y);
+                }
+                else if (count == 3)
+                {
+                    int x = a, y = Unsafe.Add(ref a, 1), z = Unsafe.Add(ref a, 2);
+                    int lo = Math.Min(x, y), hi = Math.Max(x, y);
+                    dst = Math.Min(lo, z);
+                    Unsafe.Add(ref dst, 1) = Math.Max(lo, Math.Min(hi, z));
+                    Unsafe.Add(ref dst, 2) = Math.Max(hi, z);
+                }
+                else if (count == 4)
+                {
+                    int x = a, y = Unsafe.Add(ref a, 1), z = Unsafe.Add(ref a, 2), w = Unsafe.Add(ref a, 3);
+                    int l0 = Math.Min(x, y), h0 = Math.Max(x, y);
+                    int l1 = Math.Min(z, w), h1 = Math.Max(z, w);
+                    int m0 = Math.Max(l0, l1), m1 = Math.Min(h0, h1);
+                    dst = Math.Min(l0, l1);
+                    Unsafe.Add(ref dst, 1) = Math.Min(m0, m1);
+                    Unsafe.Add(ref dst, 2) = Math.Max(m0, m1);
+                    Unsafe.Add(ref dst, 3) = Math.Max(h0, h1);
+                }
+                else if (Vector512.IsHardwareAccelerated && count >= 8)
+                {
+                    // All sixteen lanes are within the allocated bucket.
+                    // Mask unoccupied lanes before sorting, and store only
+                    // the valid elements, preserving actual int.MaxValue keys.
+                    SimdSort.SortBucketInt32(ref a, ref dst, count);
+                }
+                else
+                {
+                    dst = a;
+                    for (int i = 1; i < count; i++)
                     {
-                        ref int item = ref Unsafe.Add(ref dst, j);
-                        int previous = item;
-                        item = Math.Min(previous, carry);
-                        carry = Math.Max(previous, carry);
+                        int carry = Unsafe.Add(ref a, i);
+                        for (int j = 0; j < i; j++)
+                        {
+                            ref int item = ref Unsafe.Add(ref dst, j);
+                            int previous = item;
+                            item = Math.Min(previous, carry);
+                            carry = Math.Max(previous, carry);
+                        }
+                        Unsafe.Add(ref dst, i) = carry;
                     }
-                    Unsafe.Add(ref dst, i) = carry;
                 }
                 written += count;
             }
