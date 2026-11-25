@@ -19,6 +19,7 @@ public enum InputPattern
 public sealed class ComparisonConfig : ManualConfig
 {
     public const int BatchSize = 16;
+    public const int InvocationCount = 16;
 
     public ComparisonConfig()
     {
@@ -28,8 +29,8 @@ public sealed class ComparisonConfig : ManualConfig
             .WithWarmupCount(30)
             .WithIterationCount(60)
             .WithLaunchCount(1)
-            .WithInvocationCount(16)
-            .WithUnrollFactor(16));
+            .WithInvocationCount(InvocationCount)
+            .WithUnrollFactor(InvocationCount));
     }
 }
 
@@ -44,6 +45,7 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     public InputPattern Pattern { get; set; }
 
     private T[] source = null!;
+    private int invocationIndex;
     private List<T>[] lists = null!;
     private T[][] arrays = null!;
 
@@ -78,8 +80,8 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
             }
         }
 
-        lists = new List<T>[ComparisonConfig.BatchSize];
-        arrays = new T[ComparisonConfig.BatchSize][];
+        lists = new List<T>[ComparisonConfig.BatchSize * ComparisonConfig.InvocationCount];
+        arrays = new T[ComparisonConfig.BatchSize * ComparisonConfig.InvocationCount][];
         for (int i = 0; i < lists.Length; i++)
         {
             lists[i] = new List<T>(source);
@@ -124,6 +126,7 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     [IterationSetup]
     public void Reset()
     {
+        invocationIndex = 0;
         for (int i = 0; i < lists.Length; i++)
         {
             source.AsSpan().CopyTo(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lists[i]));
@@ -134,43 +137,43 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
     [Benchmark(Baseline = true, OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void DefaultListSort()
     {
-        foreach (var values in lists) values.Sort(Comparer);
+        foreach (var values in lists.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) values.Sort(Comparer);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void SortzSort()
     {
-        foreach (var values in lists) global::Krynetic.Sortz.SortzExtensions.Sortz(values, Comparer);
+        foreach (var values in lists.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) global::Krynetic.Sortz.SortzExtensions.Sortz(values, Comparer);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void YamSort()
     {
-        foreach (var values in lists) YamSorter.Sort(values);
+        foreach (var values in lists.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) YamSorter.Sort(values);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void CeleritySorting()
     {
-        foreach (var values in arrays) CeleritySort(values);
+        foreach (var values in arrays.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) CeleritySort(values);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void HPCsharp()
     {
-        foreach (var values in arrays) HpcSort(values);
+        foreach (var values in arrays.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) HpcSort(values);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void Anoprsst()
     {
-        foreach (var values in arrays) AnoprsstSort(values);
+        foreach (var values in arrays.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) AnoprsstSort(values);
     }
 
     [Benchmark(OperationsPerInvoke = ComparisonConfig.BatchSize)]
     public void SortingNetworksMergeSort()
     {
-        foreach (var values in arrays) SortingNetworkSort(values);
+        foreach (var values in arrays.AsSpan(invocationIndex++ * ComparisonConfig.BatchSize, ComparisonConfig.BatchSize)) SortingNetworkSort(values);
     }
 }
 
