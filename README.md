@@ -1,6 +1,6 @@
 # Krynetic.Sortz
 
-The **fastest-ranked .NET sorting library in our seven-way benchmark suite**!
+The **fastest** .NET sorting library currently!
 
 High-performance, in-place sorting for .NET lists and spans. Sortz uses **hardware-accelerated** sorting networks, radix sorting and specialized primitive algorithms, with comparison-based fallbacks for other types and custom comparers.
 
