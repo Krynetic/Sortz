@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -119,7 +120,28 @@ public static partial class Sortz
                 T previous = Unsafe.Add(ref data, kept - 1);
                 if (previous.CompareTo(current) <= 0)
                 {
-                    Unsafe.Add(ref data, kept++) = current;
+                    int end = read + 1;
+                    if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+                    {
+                        int width = Vector512<T>.Count;
+                        while (end <= length - width)
+                        {
+                            var a = Vector512.LoadUnsafe(ref data, (nuint)(end - 1));
+                            var b = Vector512.LoadUnsafe(ref data, (nuint)end);
+                            ulong mask = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b));
+                            int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
+                            end += run;
+                            if (run != width) break;
+                        }
+                    }
+                    while (end < length &&
+                        Unsafe.Add(ref data, end - 1).CompareTo(Unsafe.Add(ref data, end)) <= 0)
+                        end++;
+                    int count = end - read;
+                    if (kept != read)
+                        values.Slice(read, count).CopyTo(values.Slice(kept, count));
+                    kept += count;
+                    read = end - 1;
                     continue;
                 }
 
