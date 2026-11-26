@@ -217,6 +217,14 @@ public static partial class Sortz
                         }
                     }
                 }
+                if (length < 512 && left >= 7 &&
+                    Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                {
+                    values.Slice(left - 7, 8).CopyTo(values.Slice(output - 7, 8));
+                    left -= 8;
+                    output -= 8;
+                    moved = 8;
+                }
                 while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
