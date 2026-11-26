@@ -99,7 +99,7 @@ public static partial class Sortz
         ref T data = ref MemoryMarshal.GetReference(values);
         // The numeric callers have 32- or 64-bit lanes, so sixteen
         // adjacent pairs fit exactly in one or two vectors.
-        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && Unsafe.SizeOf<T>() >= 4)
         {
             int width = Vector512<T>.Count;
             for (int i = 1; i <= 16; i += width)
