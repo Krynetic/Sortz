@@ -202,6 +202,42 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 int moved = 0;
+
+                // Small 64-bit runs benefit from checking the first element
+                // of a sorted block rather than comparing every lane.
+                if (length <= 256 && (typeof(T) == typeof(long) || typeof(T) == typeof(double)) &&
+                    left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                {
+                    values.Slice(left - 7, 8).CopyTo(values.Slice(output - 7, 8));
+                    left -= 8;
+                    output -= 8;
+                    moved = 8;
+                }
+                else if (length >= 512 && (typeof(T) == typeof(long) || typeof(T) == typeof(double)) &&
+                    Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+                {
+                    int width = Vector512<T>.Count;
+                    if (left >= width - 1)
+                    {
+                        var run = Vector512.LoadUnsafe(ref data, (nuint)(left - width + 1));
+                        if (Vector512.GreaterThanAll(run, Vector512.Create(key)))
+                        {
+                            run.StoreUnsafe(ref data, (nuint)(output - width + 1));
+                            left -= width;
+                            output -= width;
+                            moved = 8;
+                        }
+                    }
+                }
+                else if (typeof(T) == typeof(int) && length >= 4096 &&
+                    left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                {
+                    values.Slice(left - 7, 8).CopyTo(values.Slice(output - 7, 8));
+                    left -= 8;
+                    output -= 8;
+                    moved = 8;
+                }
+
                 while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
