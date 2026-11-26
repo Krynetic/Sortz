@@ -3,6 +3,16 @@ using System.Runtime.InteropServices;
 
 namespace Krynetic.Sortz.Benchmarks;
 
+public abstract class PrimitiveBitSortBenchmark<T> : TypedSortBenchmark<T> where T : unmanaged
+{
+    protected override T[] Create(Random random, int count)
+    {
+        var values = new T[count];
+        random.NextBytes(MemoryMarshal.AsBytes(values.AsSpan()));
+        return values;
+    }
+}
+
 public abstract class TypedSortBenchmark<T>
 {
     [Params(128, 1024, 10000)]
@@ -44,36 +54,3 @@ public abstract class TypedSortBenchmark<T>
     }
 }
 
-[MemoryDiagnoser]
-[Config(typeof(SortBenchmarkConfig))]
-public class DoubleSortBenchmarks : TypedSortBenchmark<double>
-{
-    protected override double[] Create(Random random, int count) =>
-        Enumerable.Range(0, count).Select(_ => (random.NextDouble() - 0.5) * 1e10).ToArray();
-}
-
-[MemoryDiagnoser]
-[Config(typeof(SortBenchmarkConfig))]
-public class StringSortBenchmarks : TypedSortBenchmark<string>
-{
-    [Params(false, true)]
-    public bool Ordinal { get; set; }
-
-    protected override IComparer<string>? Comparer => Ordinal ? StringComparer.Ordinal : null;
-
-    protected override string[] Create(Random random, int count) =>
-        Enumerable.Range(0, count).Select(_ => random.NextInt64().ToString("X16")).ToArray();
-}
-
-[MemoryDiagnoser]
-[Config(typeof(SortBenchmarkConfig))]
-public class ObjectSortBenchmarks : TypedSortBenchmark<SortItem>
-{
-    protected override SortItem[] Create(Random random, int count) =>
-        Enumerable.Range(0, count).Select(i => new SortItem(random.Next(), i)).ToArray();
-}
-
-public sealed record SortItem(int Key, int Id) : IComparable<SortItem>
-{
-    public int CompareTo(SortItem? other) => other is null ? 1 : Key.CompareTo(other.Key);
-}
