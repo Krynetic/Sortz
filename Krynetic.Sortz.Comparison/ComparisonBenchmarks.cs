@@ -18,7 +18,7 @@ public enum InputPattern
 
 public sealed class ComparisonConfig : ManualConfig
 {
-    public const int BatchSize = 16;
+    public const int BatchSize = 8;
     public const int InvocationCount = 16;
 
     public ComparisonConfig()
@@ -26,8 +26,8 @@ public sealed class ComparisonConfig : ManualConfig
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(10)
-            .WithIterationCount(10)
+            .WithWarmupCount(3)
+            .WithIterationCount(3)
             .WithLaunchCount(1)
             .WithInvocationCount(InvocationCount)
             .WithUnrollFactor(InvocationCount));
