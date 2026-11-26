@@ -1348,9 +1348,7 @@ public static partial class Sortz
 
         if (values.Length <= 256)
         {
-            // Repair isolated exchanges without shifting the intervening run.
-            // If the disorder is not a set of exchanges, use the exact sorter.
-            if (!TryRepairSmallDoubleExchanges(values))
+            if (!TrySparseRepair(values))
                 values.Sort();
             return;
         }
@@ -1384,63 +1382,6 @@ public static partial class Sortz
         {
             TransformDoubleKeys(bits, true);
         }
-    }
-
-    private static bool TryRepairSmallDoubleExchanges(Span<double> values)
-    {
-        ref double data = ref MemoryMarshal.GetReference(values);
-        int length = values.Length;
-        // Reject dense disorder before searching for exchange partners.
-        if (Vector512.IsHardwareAccelerated)
-        {
-            var a = Vector512.LoadUnsafe(ref data);
-            var b = Vector512.LoadUnsafe(ref data, 1);
-            var c = Vector512.LoadUnsafe(ref data, 8);
-            var d = Vector512.LoadUnsafe(ref data, 9);
-            ulong ordered = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b)) |
-                (Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(c, d)) << 8);
-            if (BitOperations.PopCount(ordered) < 12) return false;
-        }
-        int budget = 8;
-        int i = 1;
-        while (i < length)
-        {
-            if (Vector512.IsHardwareAccelerated && i <= length - 8)
-            {
-                var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b = Vector512.LoadUnsafe(ref data, (nuint)i);
-                ulong mask = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b));
-                int run = Math.Min(8, BitOperations.TrailingZeroCount(~mask));
-                i += run;
-                if (run == 8) continue;
-            }
-
-            if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) <= 0)
-            {
-                i++;
-                continue;
-            }
-
-            if (budget-- == 0) return false;
-            // Move a high outlier to the first later position where its
-            // predecessor and successor admit it. Verify both boundaries.
-            int left = i - 1;
-            double high = Unsafe.Add(ref data, left);
-            int right = i;
-            while (right + 1 < length &&
-                   Unsafe.Add(ref data, right + 1).CompareTo(high) < 0)
-                right++;
-            double low = Unsafe.Add(ref data, right);
-            if ((left > 0 && Unsafe.Add(ref data, left - 1).CompareTo(low) > 0) ||
-                (right > i && low.CompareTo(Unsafe.Add(ref data, i)) > 0) ||
-                (right > i && Unsafe.Add(ref data, right - 1).CompareTo(high) > 0))
-                return false;
-            Unsafe.Add(ref data, left) = low;
-            Unsafe.Add(ref data, right) = high;
-            // Recheck the changed boundary and every subsequent pair.
-            i = Math.Max(1, left);
-        }
-        return true;
     }
 
     private static bool ContainsNaN(ReadOnlySpan<double> values)
