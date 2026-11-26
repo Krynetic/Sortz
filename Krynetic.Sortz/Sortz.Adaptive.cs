@@ -31,12 +31,21 @@ public static partial class Sortz
         if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
             int width = Vector512<T>.Count;
+            // Check the final overlapping vector rather than a scalar tail.
             for (; i <= length - width; i += width)
             {
                 var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
                 var b = Vector512.LoadUnsafe(ref data, (nuint)i);
                 if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
                     Vector512.LessThanOrEqualAll(a, b))) return false;
+            }
+            if (i < length && length > width)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1));
+                var b = Vector512.LoadUnsafe(ref data, (nuint)(length - width));
+                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
+                    Vector512.LessThanOrEqualAll(a, b))) return false;
+                i = length;
             }
         }
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
@@ -161,6 +170,32 @@ public static partial class Sortz
                             if (run != width) break;
                         }
                     }
+                    else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
+                    {
+                        int width = Vector256<T>.Count;
+                        while (end <= length - width)
+                        {
+                            var a = Vector256.LoadUnsafe(ref data, (nuint)(end - 1));
+                            var b = Vector256.LoadUnsafe(ref data, (nuint)end);
+                            uint mask = Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b));
+                            int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
+                            end += run;
+                            if (run != width) break;
+                        }
+                    }
+                    else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
+                    {
+                        int width = Vector128<T>.Count;
+                        while (end <= length - width)
+                        {
+                            var a = Vector128.LoadUnsafe(ref data, (nuint)(end - 1));
+                            var b = Vector128.LoadUnsafe(ref data, (nuint)end);
+                            uint mask = Vector128.ExtractMostSignificantBits(Vector128.LessThanOrEqual(a, b));
+                            int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
+                            end += run;
+                            if (run != width) break;
+                        }
+                    }
                     while (end < length &&
                         Unsafe.Add(ref data, end - 1).CompareTo(Unsafe.Add(ref data, end)) <= 0)
                         end++;
@@ -213,28 +248,36 @@ public static partial class Sortz
             while (right >= 0)
             {
                 T key = rejected[right--];
-
-                // Binary-search the insertion boundary. One overlapping span
-                // copy moves the whole greater-than run instead of repeatedly
-                // comparing and writing individual elements.
-                if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                int moved = 0;
+                while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
-                    int lo = 0, hi = left + 1;
+                    Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                    moved++;
+                }
+
+                // Gallop across long runs, then move them with one memmove.
+                if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                {
+                    int hi = left + 1, step = 1;
+                    while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                    {
+                        if (step > left / 2) { step = left + 1; break; }
+                        step <<= 1;
+                    }
+
+                    int lo = Math.Max(0, left - step + 1);
                     while (lo < hi)
                     {
                         int mid = lo + ((hi - lo) >> 1);
-                        if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0)
-                            lo = mid + 1;
-                        else
-                            hi = mid;
+                        if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                        else hi = mid;
                     }
 
                     int count = left - lo + 1;
                     values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
                     output -= count;
-                    left = lo - 1;
+                    left -= count;
                 }
-
                 Unsafe.Add(ref data, output--) = key;
             }
             return true;
