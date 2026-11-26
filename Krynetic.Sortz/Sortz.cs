@@ -1349,14 +1349,6 @@ public static partial class Sortz
             return;
         }
 
-        // Retain the native fallback for small disordered doubles, but
-        // preserve the baseline sparse-repair dispatch and its size guard.
-        if (values.Length <= 256)
-        {
-            values.Sort();
-            return;
-        }
-
         // NaNs sort first under Double.CompareTo. Keep every original payload.
         int nanCount = 0;
         if (ContainsNaN(values))
