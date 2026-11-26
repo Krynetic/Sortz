@@ -71,9 +71,16 @@ public static partial class Sortz
             if (ReferenceTraits<T>.Comparable)
             {
                 int first = 0;
+                ref T data = ref MemoryMarshal.GetReference(values);
                 for (int i = 0; i < values.Length; i++)
-                    if (values[i] is null)
-                        Swap(values, first++, i);
+                {
+                    ref T item = ref Unsafe.Add(ref data, i);
+                    if (item is null)
+                    {
+                        ref T target = ref Unsafe.Add(ref data, first++);
+                        (target, item) = (item, target);
+                    }
+                }
                 var nonNull = values[first..];
                 if (nonNull.Length < 256 || !TryRepairComparableReference(nonNull))
                     SortComparableReference(nonNull, depth);
@@ -243,12 +250,14 @@ public static partial class Sortz
         {
             T key = Unsafe.Add(ref input, i);
             var comparable = (IComparable<T>)key!;
+            if (comparable.CompareTo(Unsafe.Add(ref input, i - 1)) >= 0)
+                continue;
             int j = i;
-            while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0)
+            do
             {
                 Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
                 j--;
-            }
+            } while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0);
             Unsafe.Add(ref input, j) = key;
         }
     }
