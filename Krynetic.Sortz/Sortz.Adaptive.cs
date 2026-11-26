@@ -87,11 +87,25 @@ public static partial class Sortz
     {
         ref string? data = ref MemoryMarshal.GetReference(values);
         int length = values.Length;
-        bool descending = string.CompareOrdinal(data, Unsafe.Add(ref data, length - 1)) > 0;
-        for (int i = 1; i < length; i++)
+        string? previous = data;
+        bool descending = string.CompareOrdinal(previous, Unsafe.Add(ref data, length - 1)) > 0;
+        if (descending)
         {
-            int c = string.CompareOrdinal(Unsafe.Add(ref data, i - 1), Unsafe.Add(ref data, i));
-            if (descending ? c < 0 : c > 0) return false;
+            for (int i = 1; i < length; i++)
+            {
+                string? current = Unsafe.Add(ref data, i);
+                if (string.CompareOrdinal(previous, current) < 0) return false;
+                previous = current;
+            }
+        }
+        else
+        {
+            for (int i = 1; i < length; i++)
+            {
+                string? current = Unsafe.Add(ref data, i);
+                if (string.CompareOrdinal(previous, current) > 0) return false;
+                previous = current;
+            }
         }
         if (descending) values.Reverse();
         return true;
@@ -249,23 +263,6 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 int moved = 0;
-                if (left >= 0 && Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
-                {
-                    int width = Vector256<T>.Count;
-                    if (left >= width - 1)
-                    {
-                        var block = Vector256.LoadUnsafe(ref data, (nuint)(left - width + 1));
-                        uint mask = Vector256.ExtractMostSignificantBits(Vector256.GreaterThan(block, Vector256.Create(key)));
-                        int count = BitOperations.LeadingZeroCount(~(mask << (32 - width)));
-                        if (count > 0)
-                        {
-                            values.Slice(left - count + 1, count).CopyTo(values.Slice(output - count + 1, count));
-                            left -= count;
-                            output -= count;
-                            moved = Math.Min(count, 8);
-                        }
-                    }
-                }
                 while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
