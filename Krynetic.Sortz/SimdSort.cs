@@ -282,7 +282,7 @@ internal static class SimdSort
     {
         if (values.Length == 128)
         {
-            Sort128UInt64(values);
+            Sort128UInt64<ulong>(values);
             return;
         }
 
@@ -299,26 +299,42 @@ internal static class SimdSort
         padded[..values.Length].CopyTo(values);
     }
 
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector512<ulong> LoadMapped64<T>(ref ulong data, nuint offset) where T : unmanaged
+    {
+        var value = Vector512.LoadUnsafe(ref data, offset);
+        if (typeof(T) != typeof(double)) return value;
+        return value ^ ((value.AsInt64() >> 63).AsUInt64() | Vector512.Create(0x8000000000000000UL));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void StoreMapped64<T>(Vector512<ulong> value, ref ulong data, nuint offset) where T : unmanaged
+    {
+        if (typeof(T) == typeof(double)) value ^= (~(value.AsInt64() >> 63).AsUInt64()) | Vector512.Create(0x8000000000000000UL);
+        value.StoreUnsafe(ref data, offset);
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Sort128UInt64(Span<ulong> values)
+    internal static void Sort128UInt64<T>(Span<ulong> values) where T : unmanaged
     {
         ref ulong data = ref MemoryMarshal.GetReference(values);
-        var v0 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 0));
-        var v1 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 8));
-        var v2 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 16));
-        var v3 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 24));
-        var v4 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 32));
-        var v5 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 40));
-        var v6 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 48));
-        var v7 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 56));
-        var v8 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 64));
-        var v9 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 72));
-        var v10 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 80));
-        var v11 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 88));
-        var v12 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 96));
-        var v13 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 104));
-        var v14 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 112));
-        var v15 = SortVectorUInt64(Vector512.LoadUnsafe(ref data, 120));
+        var v0 = SortVectorUInt64(LoadMapped64<T>(ref data, 0));
+        var v1 = SortVectorUInt64(LoadMapped64<T>(ref data, 8));
+        var v2 = SortVectorUInt64(LoadMapped64<T>(ref data, 16));
+        var v3 = SortVectorUInt64(LoadMapped64<T>(ref data, 24));
+        var v4 = SortVectorUInt64(LoadMapped64<T>(ref data, 32));
+        var v5 = SortVectorUInt64(LoadMapped64<T>(ref data, 40));
+        var v6 = SortVectorUInt64(LoadMapped64<T>(ref data, 48));
+        var v7 = SortVectorUInt64(LoadMapped64<T>(ref data, 56));
+        var v8 = SortVectorUInt64(LoadMapped64<T>(ref data, 64));
+        var v9 = SortVectorUInt64(LoadMapped64<T>(ref data, 72));
+        var v10 = SortVectorUInt64(LoadMapped64<T>(ref data, 80));
+        var v11 = SortVectorUInt64(LoadMapped64<T>(ref data, 88));
+        var v12 = SortVectorUInt64(LoadMapped64<T>(ref data, 96));
+        var v13 = SortVectorUInt64(LoadMapped64<T>(ref data, 104));
+        var v14 = SortVectorUInt64(LoadMapped64<T>(ref data, 112));
+        var v15 = SortVectorUInt64(LoadMapped64<T>(ref data, 120));
         var r2_0 = Vector512.Shuffle(v1, ReverseUInt64);
         var h2_0 = Vector512.Max(v0, r2_0);
         v0 = Vector512.Min(v0, r2_0);
@@ -655,22 +671,22 @@ internal static class SimdSort
         v13 = MergeVectorUInt64(v13);
         v14 = MergeVectorUInt64(v14);
         v15 = MergeVectorUInt64(v15);
-        v0.StoreUnsafe(ref data, 0);
-        v1.StoreUnsafe(ref data, 8);
-        v2.StoreUnsafe(ref data, 16);
-        v3.StoreUnsafe(ref data, 24);
-        v4.StoreUnsafe(ref data, 32);
-        v5.StoreUnsafe(ref data, 40);
-        v6.StoreUnsafe(ref data, 48);
-        v7.StoreUnsafe(ref data, 56);
-        v8.StoreUnsafe(ref data, 64);
-        v9.StoreUnsafe(ref data, 72);
-        v10.StoreUnsafe(ref data, 80);
-        v11.StoreUnsafe(ref data, 88);
-        v12.StoreUnsafe(ref data, 96);
-        v13.StoreUnsafe(ref data, 104);
-        v14.StoreUnsafe(ref data, 112);
-        v15.StoreUnsafe(ref data, 120);
+        StoreMapped64<T>(v0, ref data, 0);
+        StoreMapped64<T>(v1, ref data, 8);
+        StoreMapped64<T>(v2, ref data, 16);
+        StoreMapped64<T>(v3, ref data, 24);
+        StoreMapped64<T>(v4, ref data, 32);
+        StoreMapped64<T>(v5, ref data, 40);
+        StoreMapped64<T>(v6, ref data, 48);
+        StoreMapped64<T>(v7, ref data, 56);
+        StoreMapped64<T>(v8, ref data, 64);
+        StoreMapped64<T>(v9, ref data, 72);
+        StoreMapped64<T>(v10, ref data, 80);
+        StoreMapped64<T>(v11, ref data, 88);
+        StoreMapped64<T>(v12, ref data, 96);
+        StoreMapped64<T>(v13, ref data, 104);
+        StoreMapped64<T>(v14, ref data, 112);
+        StoreMapped64<T>(v15, ref data, 120);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
