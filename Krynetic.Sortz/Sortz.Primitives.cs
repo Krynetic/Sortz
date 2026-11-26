@@ -159,9 +159,10 @@ public static partial class Sortz
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
+        if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<short, ushort>(values);
         XorKeys(bits, (ushort)0x8000);
-        try { SortUInt16(bits); }
+        try { SortUInt16Unordered(bits); }
         finally { XorKeys(bits, (ushort)0x8000); }
     }
 
@@ -169,6 +170,11 @@ public static partial class Sortz
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
+        SortUInt16Unordered(values);
+    }
+
+    private static void SortUInt16Unordered(Span<ushort> values)
+    {
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
         if (Avx512BW.IsSupported && length <= 1024)
