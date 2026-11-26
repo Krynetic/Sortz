@@ -228,6 +228,20 @@ public static partial class Sortz
         if (TryOrderedNumeric(values)) return;
         if (values.Length >= 64 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        // High-digit distribution avoids the large register network when
+        // the input is sufficiently dispersed. Skewed inputs fall back.
+        if (values.Length is >= 512 and <= 2048)
+        {
+            var keys = MemoryMarshal.Cast<long, ulong>(values);
+            XorKeys(keys, 0x8000000000000000UL);
+            try
+            {
+                if (!TryBucketUInt64(keys))
+                    SortPrimitiveUInt64(keys);
+            }
+            finally { XorKeys(keys, 0x8000000000000000UL); }
+            return;
+        }
         var bits = MemoryMarshal.Cast<long, ulong>(values);
         XorKeys(bits, 0x8000000000000000UL);
         try { SortPrimitiveUInt64(bits); }
