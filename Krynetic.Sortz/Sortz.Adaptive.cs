@@ -202,25 +202,20 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 int moved = 0;
-                if (length >= 512 && Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+                // The kept prefix is ordered: its first element in a block
+                // establishes whether the entire block belongs above key.
+                if (left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
                 {
-                    int width = Vector512<T>.Count;
-                    if (left >= width - 1)
+                    if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported &&
+                        Vector512<T>.Count == 8)
                     {
-                        var run = Vector512.LoadUnsafe(ref data, (nuint)(left - width + 1));
-                        if (Vector512.GreaterThanAll(run, Vector512.Create(key)))
-                        {
-                            run.StoreUnsafe(ref data, (nuint)(output - width + 1));
-                            left -= width;
-                            output -= width;
-                            moved = 8;
-                        }
+                        Vector512.LoadUnsafe(ref data, (nuint)(left - 7))
+                            .StoreUnsafe(ref data, (nuint)(output - 7));
                     }
-                }
-                if (length < 512 && left >= 7 &&
-                    Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
-                {
-                    values.Slice(left - 7, 8).CopyTo(values.Slice(output - 7, 8));
+                    else
+                    {
+                        values.Slice(left - 7, 8).CopyTo(values.Slice(output - 7, 8));
+                    }
                     left -= 8;
                     output -= 8;
                     moved = 8;
