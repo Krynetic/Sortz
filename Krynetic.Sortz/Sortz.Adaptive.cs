@@ -51,6 +51,18 @@ public static partial class Sortz
             }
         }
 
+        else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
+        {
+            int width = Vector128<T>.Count;
+            for (; i <= length - width; i += width)
+            {
+                var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector128.LoadUnsafe(ref data, (nuint)i);
+                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
+                    Vector128.LessThanOrEqualAll(a, b))) return false;
+            }
+        }
+
         for (; i < length; i++)
         {
             int c = Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i));
