@@ -74,7 +74,9 @@ public static partial class Sortz
                 for (int i = 0; i < values.Length; i++)
                     if (values[i] is null)
                         Swap(values, first++, i);
-                SortComparableReference(values[first..], depth);
+                var nonNull = values[first..];
+                if (nonNull.Length < 64 || !TryRepairComparableReference(nonNull))
+                    SortComparableReference(nonNull, depth);
             }
             else
                 SortReference(values, Comparer<T>.Default, depth);
@@ -87,6 +89,44 @@ public static partial class Sortz
     private static class ReferenceTraits<T>
     {
         internal static readonly bool Comparable = typeof(IComparable<T>).IsAssignableFrom(typeof(T));
+    }
+
+    // Repair a bounded number of misplaced keys with binary insertion.
+    // The sample rejects random inputs; the move budget bounds worst-case work.
+    private static bool TryRepairComparableReference<T>(Span<T> values)
+    {
+        int length = values.Length;
+        int disorder = 0;
+        for (int i = 1; i <= 16; i++)
+            if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 4)
+                return false;
+
+        int budget = length > int.MaxValue / 4 ? int.MaxValue : length * 4;
+        for (int i = 1; i < length; i++)
+        {
+            T key = values[i];
+            var comparable = (IComparable<T>)key!;
+            if (comparable.CompareTo(values[i - 1]) >= 0)
+                continue;
+
+            int lo = 0, hi = i;
+            while (lo < hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (comparable.CompareTo(values[mid]) < 0) hi = mid;
+                else lo = mid + 1;
+            }
+
+            int count = i - lo;
+            if (count > budget)
+                return false;
+
+            budget -= count;
+            values.Slice(lo, count).CopyTo(values.Slice(lo + 1, count));
+            values[lo] = key;
+        }
+
+        return true;
     }
 
     // All values are non-null, and the caller has established IComparable<T>.
@@ -289,7 +329,7 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (count >= 64 && TrySparseRepair(values))
+        if (count >= 256 && TrySparseRepair(values))
             return;
 
         int i;
@@ -1340,7 +1380,7 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (values.Length >= 64 && TrySparseRepair(values))
+        if (values.Length >= 256 && TrySparseRepair(values))
             return;
 
         if (values.Length <= 32)
