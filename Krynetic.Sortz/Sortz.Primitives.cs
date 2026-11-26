@@ -246,7 +246,7 @@ public static partial class Sortz
     private static void SortInt64(Span<long> values)
     {
         if (TryOrderedNumeric(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         // High-digit distribution avoids the large register network when
         // the input is sufficiently dispersed. Skewed inputs fall back.
@@ -397,7 +397,15 @@ public static partial class Sortz
 
     private static void SortSingle(Span<float> values)
     {
-        if (TryOrderedNumeric(values)) return;
+        // CompareTo orders NaNs before numbers; SIMD comparisons do not.
+        // Skip a leading NaN run before checking the numeric suffix.
+        if (float.IsNaN(values[0]))
+        {
+            int first = 1;
+            while (first < values.Length && float.IsNaN(values[first])) first++;
+            if (TryOrderedNumeric(values[first..])) return;
+        }
+        else if (TryOrderedNumeric(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<float>.Default); return; }
         var bits = MemoryMarshal.Cast<float, uint>(values);
