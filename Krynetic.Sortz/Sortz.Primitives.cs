@@ -125,12 +125,18 @@ public static partial class Sortz
         int index = 0;
         if (striped)
         {
-            for (; index <= values.Length - 4; index += 4)
+            for (; index <= values.Length - 8; index += 8)
             {
-                Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
-                Unsafe.Add(ref h, 256 + (Unsafe.Add(ref data, index + 1) ^ sign))++;
-                Unsafe.Add(ref h, 512 + (Unsafe.Add(ref data, index + 2) ^ sign))++;
-                Unsafe.Add(ref h, 768 + (Unsafe.Add(ref data, index + 3) ^ sign))++;
+                ulong word = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref data, index));
+                word ^= 0x0101010101010101UL * (uint)sign;
+                Unsafe.Add(ref h, (byte)word)++;
+                Unsafe.Add(ref h, 256 + (byte)(word >> 8))++;
+                Unsafe.Add(ref h, 512 + (byte)(word >> 16))++;
+                Unsafe.Add(ref h, 768 + (byte)(word >> 24))++;
+                Unsafe.Add(ref h, (byte)(word >> 32))++;
+                Unsafe.Add(ref h, 256 + (byte)(word >> 40))++;
+                Unsafe.Add(ref h, 512 + (byte)(word >> 48))++;
+                Unsafe.Add(ref h, 768 + (byte)(word >> 56))++;
             }
         }
         for (; index < values.Length; index++)
