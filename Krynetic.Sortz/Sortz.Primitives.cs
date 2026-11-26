@@ -118,7 +118,7 @@ public static partial class Sortz
         }
 
         bool striped = values.Length >= 2048;
-        Span<int> counts = stackalloc int[striped ? 1024 : 256];
+        Span<int> counts = stackalloc int[striped ? 2048 : 256];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
         ref byte data = ref MemoryMarshal.GetReference(values);
@@ -133,10 +133,10 @@ public static partial class Sortz
                 Unsafe.Add(ref h, 256 + (byte)(word >> 8))++;
                 Unsafe.Add(ref h, 512 + (byte)(word >> 16))++;
                 Unsafe.Add(ref h, 768 + (byte)(word >> 24))++;
-                Unsafe.Add(ref h, (byte)(word >> 32))++;
-                Unsafe.Add(ref h, 256 + (byte)(word >> 40))++;
-                Unsafe.Add(ref h, 512 + (byte)(word >> 48))++;
-                Unsafe.Add(ref h, 768 + (byte)(word >> 56))++;
+                Unsafe.Add(ref h, 1024 + (byte)(word >> 32))++;
+                Unsafe.Add(ref h, 1280 + (byte)(word >> 40))++;
+                Unsafe.Add(ref h, 1536 + (byte)(word >> 48))++;
+                Unsafe.Add(ref h, 1792 + (byte)(word >> 56))++;
             }
         }
         for (; index < values.Length; index++)
@@ -147,7 +147,8 @@ public static partial class Sortz
         {
             int frequency = Unsafe.Add(ref h, i);
             if (striped)
-                frequency += Unsafe.Add(ref h, i + 256) + Unsafe.Add(ref h, i + 512) + Unsafe.Add(ref h, i + 768);
+                frequency += Unsafe.Add(ref h, i + 256) + Unsafe.Add(ref h, i + 512) + Unsafe.Add(ref h, i + 768)
+                    + Unsafe.Add(ref h, i + 1024) + Unsafe.Add(ref h, i + 1280) + Unsafe.Add(ref h, i + 1536) + Unsafe.Add(ref h, i + 1792);
             if (frequency == 0) continue;
             byte value = (byte)(i ^ sign);
             if (frequency <= 8 && offset <= values.Length - 8)
