@@ -31,12 +31,21 @@ public static partial class Sortz
         if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
             int width = Vector512<T>.Count;
+            // Check the final overlapping vector rather than a scalar tail.
             for (; i <= length - width; i += width)
             {
                 var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
                 var b = Vector512.LoadUnsafe(ref data, (nuint)i);
                 if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
                     Vector512.LessThanOrEqualAll(a, b))) return false;
+            }
+            if (i < length && length > width)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1));
+                var b = Vector512.LoadUnsafe(ref data, (nuint)(length - width));
+                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
+                    Vector512.LessThanOrEqualAll(a, b))) return false;
+                i = length;
             }
         }
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
@@ -78,11 +87,25 @@ public static partial class Sortz
     {
         ref string? data = ref MemoryMarshal.GetReference(values);
         int length = values.Length;
-        bool descending = string.CompareOrdinal(data, Unsafe.Add(ref data, length - 1)) > 0;
-        for (int i = 1; i < length; i++)
+        string? previous = data;
+        bool descending = string.CompareOrdinal(previous, Unsafe.Add(ref data, length - 1)) > 0;
+        if (descending)
         {
-            int c = string.CompareOrdinal(Unsafe.Add(ref data, i - 1), Unsafe.Add(ref data, i));
-            if (descending ? c < 0 : c > 0) return false;
+            for (int i = 1; i < length; i++)
+            {
+                string? current = Unsafe.Add(ref data, i);
+                if (string.CompareOrdinal(previous, current) < 0) return false;
+                previous = current;
+            }
+        }
+        else
+        {
+            for (int i = 1; i < length; i++)
+            {
+                string? current = Unsafe.Add(ref data, i);
+                if (string.CompareOrdinal(previous, current) > 0) return false;
+                previous = current;
+            }
         }
         if (descending) values.Reverse();
         return true;
@@ -156,6 +179,32 @@ public static partial class Sortz
                             var a = Vector512.LoadUnsafe(ref data, (nuint)(end - 1));
                             var b = Vector512.LoadUnsafe(ref data, (nuint)end);
                             ulong mask = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b));
+                            int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
+                            end += run;
+                            if (run != width) break;
+                        }
+                    }
+                    else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
+                    {
+                        int width = Vector256<T>.Count;
+                        while (end <= length - width)
+                        {
+                            var a = Vector256.LoadUnsafe(ref data, (nuint)(end - 1));
+                            var b = Vector256.LoadUnsafe(ref data, (nuint)end);
+                            uint mask = Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b));
+                            int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
+                            end += run;
+                            if (run != width) break;
+                        }
+                    }
+                    else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
+                    {
+                        int width = Vector128<T>.Count;
+                        while (end <= length - width)
+                        {
+                            var a = Vector128.LoadUnsafe(ref data, (nuint)(end - 1));
+                            var b = Vector128.LoadUnsafe(ref data, (nuint)end);
+                            uint mask = Vector128.ExtractMostSignificantBits(Vector128.LessThanOrEqual(a, b));
                             int run = Math.Min(width, BitOperations.TrailingZeroCount(~mask));
                             end += run;
                             if (run != width) break;
