@@ -158,7 +158,7 @@ public static partial class Sortz
     private static void SortInt16(Span<short> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         var bits = MemoryMarshal.Cast<short, ushort>(values);
         XorKeys(bits, (ushort)0x8000);
         try { SortUInt16(bits); }
@@ -168,7 +168,7 @@ public static partial class Sortz
     private static void SortUInt16(Span<ushort> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
         if (Avx512BW.IsSupported && length <= 1024)
@@ -271,7 +271,7 @@ public static partial class Sortz
     private static void SortUnsigned64(Span<ulong> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         SortPrimitiveUInt64(values);
     }
@@ -398,7 +398,7 @@ public static partial class Sortz
     private static void SortSingle(Span<float> values)
     {
         if (TryOrderedNumeric(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<float>.Default); return; }
         var bits = MemoryMarshal.Cast<float, uint>(values);
         TransformSingleKeys(bits, false);
@@ -568,7 +568,7 @@ public static partial class Sortz
     private static void SortInt128(Span<Int128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
@@ -582,7 +582,7 @@ public static partial class Sortz
     private static void SortUnsigned128(Span<UInt128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
