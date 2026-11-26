@@ -576,7 +576,7 @@ public static partial class Sortz
     private static void SortInt128(Span<Int128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 256 && TrySparseRepair(values)) return;
+        if (values.Length >= 64 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
@@ -590,7 +590,7 @@ public static partial class Sortz
     private static void SortUnsigned128(Span<UInt128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 256 && TrySparseRepair(values)) return;
+        if (values.Length >= 64 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
@@ -898,6 +898,7 @@ public static partial class Sortz
     private static void SortDecimal(Span<decimal> values)
     {
         if (TryOrdered(values, Comparer<decimal>.Default)) return;
+        if (values.Length >= 64 && TrySparseRepair(values)) return;
         if (values.Length is >= 64 and <= 65536 && TryProjectedCompact(values, new DecimalComparer(), false)) return;
         if (values.Length >= 64 && values.Length <= 1048576 && TryProjected128(values, new DecimalComparer(), false)) return;
         // Decimal is not a CLR primitive. Keep exact comparisons and avoid
