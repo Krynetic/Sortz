@@ -576,7 +576,7 @@ public static partial class Sortz
     private static void SortInt128(Span<Int128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
@@ -590,7 +590,7 @@ public static partial class Sortz
     private static void SortUnsigned128(Span<UInt128> values)
     {
         if (TryOrderedInteger(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;
@@ -740,7 +740,8 @@ public static partial class Sortz
             }
 
             if (BitOperations.PopCount(varying) < 4) return false;
-            SortProjectedInt32(keys, indexBits);
+            if (length > 256 || !TryRepairProjectedKeys(keys))
+                SortProjectedInt32(keys, indexBits);
             int maxCollision = Math.Max(64, length / 8);
             for (int i = maxCollision; i < length; i += maxCollision)
                 if (((uint)keys[i] & ~indexMask) == ((uint)keys[i - maxCollision] & ~indexMask))
@@ -782,6 +783,42 @@ public static partial class Sortz
             return true;
         }
         finally { if (rentedKeys is not null) ArrayPool<int>.Shared.Return(rentedKeys); }
+    }
+
+    // For small projected arrays, repair a limited number of misplaced keys
+    // using inexpensive 32-bit comparisons rather than comparing wide values.
+    // The budget bounds work and the fallback always sees a valid permutation.
+    private static bool TryRepairProjectedKeys(Span<int> keys)
+    {
+        int length = keys.Length;
+        ref int data = ref MemoryMarshal.GetReference(keys);
+        int disorder = 0;
+        for (int i = 1; i < Math.Min(length, 17); i++)
+            if (Unsafe.Add(ref data, i - 1) > Unsafe.Add(ref data, i) && ++disorder > 3)
+                return false;
+
+        int budget = length * 2;
+        for (int i = 1; i < length; i++)
+        {
+            int key = Unsafe.Add(ref data, i);
+            if (Unsafe.Add(ref data, i - 1) <= key) continue;
+
+            int lo = 0, hi = i;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (Unsafe.Add(ref data, mid) <= key) lo = mid + 1;
+                else hi = mid;
+            }
+
+            int count = i - lo;
+            if (count > budget) return false;
+            budget -= count;
+            keys.Slice(lo, count).CopyTo(keys.Slice(lo + 1, count));
+            Unsafe.Add(ref data, lo) = key;
+        }
+
+        return true;
     }
 
     private static readonly UInt128[] DecimalPowers =
@@ -898,7 +935,7 @@ public static partial class Sortz
     private static void SortDecimal(Span<decimal> values)
     {
         if (TryOrdered(values, Comparer<decimal>.Default)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length is >= 64 and <= 65536 && TryProjectedCompact(values, new DecimalComparer(), false)) return;
         if (values.Length >= 64 && values.Length <= 1048576 && TryProjected128(values, new DecimalComparer(), false)) return;
         // Decimal is not a CLR primitive. Keep exact comparisons and avoid
