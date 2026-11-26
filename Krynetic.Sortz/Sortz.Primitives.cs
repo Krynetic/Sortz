@@ -46,14 +46,32 @@ public static partial class Sortz
                 count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
                     Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
         }
+        else if (Vector256.IsHardwareAccelerated)
+        {
+            for (; i <= bytes.Length - 32; i += 32)
+                count += BitOperations.PopCount(Vector256.ExtractMostSignificantBits(
+                    Vector256.Equals(Vector256.LoadUnsafe(ref data, (nuint)i), Vector256<byte>.Zero)));
+        }
+        else if (Vector128.IsHardwareAccelerated)
+        {
+            for (; i <= bytes.Length - 16; i += 16)
+                count += BitOperations.PopCount(Vector128.ExtractMostSignificantBits(
+                    Vector128.Equals(Vector128.LoadUnsafe(ref data, (nuint)i), Vector128<byte>.Zero)));
+        }
         for (; i < bytes.Length; i++)
             count += Unsafe.Add(ref data, i) == 0 ? 1 : 0;
         values[..count].Clear();
         values[count..].Fill(true);
     }
 
-    private static void SortByte(Span<byte> values) => SortByteCore(values, 0);
-    private static void SortSByte(Span<sbyte> values) => SortByteCore(MemoryMarshal.Cast<sbyte, byte>(values), 128);
+    private static void SortByte(Span<byte> values)
+    {
+        if (!TryOrderedNumeric(values)) SortByteCore(values, 0);
+    }
+    private static void SortSByte(Span<sbyte> values)
+    {
+        if (!TryOrderedNumeric(values)) SortByteCore(MemoryMarshal.Cast<sbyte, byte>(values), 128);
+    }
 
     private static void SortByteCore(Span<byte> values, int sign)
     {
@@ -140,6 +158,7 @@ public static partial class Sortz
     private static void SortInt16(Span<short> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         var bits = MemoryMarshal.Cast<short, ushort>(values);
         XorKeys(bits, (ushort)0x8000);
         try { SortUInt16(bits); }
@@ -149,6 +168,7 @@ public static partial class Sortz
     private static void SortUInt16(Span<ushort> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
         if (Avx512BW.IsSupported && length <= 1024)
@@ -226,7 +246,7 @@ public static partial class Sortz
     private static void SortInt64(Span<long> values)
     {
         if (TryOrderedNumeric(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         // High-digit distribution avoids the large register network when
         // the input is sufficiently dispersed. Skewed inputs fall back.
@@ -251,6 +271,7 @@ public static partial class Sortz
     private static void SortUnsigned64(Span<ulong> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         SortPrimitiveUInt64(values);
     }
@@ -376,7 +397,16 @@ public static partial class Sortz
 
     private static void SortSingle(Span<float> values)
     {
-        if (TryOrdered(values, Comparer<float>.Default)) return;
+        // CompareTo orders NaNs before numbers; SIMD comparisons do not.
+        // Skip a leading NaN run before checking the numeric suffix.
+        if (float.IsNaN(values[0]))
+        {
+            int first = 1;
+            while (first < values.Length && float.IsNaN(values[first])) first++;
+            if (TryOrderedNumeric(values[first..])) return;
+        }
+        else if (TryOrderedNumeric(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<float>.Default); return; }
         var bits = MemoryMarshal.Cast<float, uint>(values);
         TransformSingleKeys(bits, false);
@@ -499,15 +529,7 @@ public static partial class Sortz
     private static bool TryOrderedInteger<T>(Span<T> values) where T : unmanaged, IBinaryInteger<T>
     {
         if (values.Length < 2) return true;
-        int i = 1;
-        while (i < values.Length && values[i - 1] == values[i]) i++;
-        if (i == values.Length) return true;
-        bool descending = values[i - 1] > values[i];
-        while (++i < values.Length)
-            if (descending ? values[i - 1] < values[i] : values[i - 1] > values[i])
-                return false;
-        if (descending) values.Reverse();
-        return true;
+        return TryOrderedNumeric(values);
     }
 
     private static void InsertionInteger<T>(Span<T> values) where T : unmanaged, IBinaryInteger<T>
@@ -554,6 +576,7 @@ public static partial class Sortz
     private static void SortInt128(Span<Int128> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<Int128>.Default, true)) return;
@@ -567,6 +590,7 @@ public static partial class Sortz
     private static void SortUnsigned128(Span<UInt128> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<UInt128>.Default, false)) return;
         if (values.Length <= 1048576 && TryProjected128(values, Comparer<UInt128>.Default, false)) return;

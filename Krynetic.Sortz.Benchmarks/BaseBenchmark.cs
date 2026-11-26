@@ -18,7 +18,7 @@ public abstract class TypedSortBenchmark<T>
     [Params(128, 1024, 10000)]
     public int Count { get; set; }
 
-    [Params(InputPattern.Random)]
+    [Params(InputPattern.Random, InputPattern.Ascending, InputPattern.Descending, InputPattern.NearlySorted)]
     public InputPattern Pattern { get; set; }
 
     private T[] source = null!;

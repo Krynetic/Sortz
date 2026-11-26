@@ -71,10 +71,19 @@ public static partial class Sortz
             if (ReferenceTraits<T>.Comparable)
             {
                 int first = 0;
+                ref T data = ref MemoryMarshal.GetReference(values);
                 for (int i = 0; i < values.Length; i++)
-                    if (values[i] is null)
-                        Swap(values, first++, i);
-                SortComparableReference(values[first..], depth);
+                {
+                    ref T item = ref Unsafe.Add(ref data, i);
+                    if (item is null)
+                    {
+                        ref T target = ref Unsafe.Add(ref data, first++);
+                        (target, item) = (item, target);
+                    }
+                }
+                var nonNull = values[first..];
+                if (nonNull.Length < 256 || !TryRepairComparableReference(nonNull))
+                    SortComparableReference(nonNull, depth);
             }
             else
                 SortReference(values, Comparer<T>.Default, depth);
@@ -87,6 +96,94 @@ public static partial class Sortz
     private static class ReferenceTraits<T>
     {
         internal static readonly bool Comparable = typeof(IComparable<T>).IsAssignableFrom(typeof(T));
+    }
+
+    // Compact a monotonic subsequence and merge only the rejected keys.
+    // On failure restore the permutation before falling back to introsort.
+    private static bool TryRepairComparableReference<T>(Span<T> values)
+    {
+        int length = values.Length;
+        int disorder = 0;
+        for (int i = 1; i <= 16; i++)
+            if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 4)
+                return false;
+
+        // Reject random input before renting scratch or compacting references.
+        for (int block = 1; block <= 3; block++)
+        {
+            int start = (length >> 2) * block;
+            disorder = 0;
+            for (int i = start; i < start + 8; i++)
+                if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 2)
+                    return false;
+        }
+
+        int capacity = Math.Max(8, length >> 3);
+        T[] rented = ArrayPool<T>.Shared.Rent(capacity);
+        Span<T> rejected = rented.AsSpan(0, capacity);
+        int kept = 1, dropped = 0;
+        try
+        {
+            for (int read = 1; read < length; read++)
+            {
+                T key = values[read];
+                var comparable = (IComparable<T>)key!;
+                if (comparable.CompareTo(values[kept - 1]) >= 0)
+                {
+                    if (kept != read) values[kept] = key;
+                    kept++;
+                    continue;
+                }
+
+                int cut = kept - 1, limit = Math.Max(0, kept - 8);
+                while (cut > limit && comparable.CompareTo(values[cut - 1]) < 0)
+                    cut--;
+                bool removeSuffix = cut == 0 || comparable.CompareTo(values[cut - 1]) >= 0;
+                int count = removeSuffix ? kept - cut : 1;
+                if (count > capacity - dropped)
+                {
+                    values[read..].CopyTo(values[kept..]);
+                    rejected[..dropped].CopyTo(values[(length - dropped)..]);
+                    return false;
+                }
+
+                if (removeSuffix)
+                {
+                    values.Slice(cut, count).CopyTo(rejected[dropped..]);
+                    dropped += count;
+                    values[cut] = key;
+                    kept = cut + 1;
+                }
+                else rejected[dropped++] = key;
+            }
+
+            if (dropped == 0) return true;
+            SortComparableReference(rejected[..dropped], 2 * (BitOperations.Log2((uint)dropped) + 1));
+            int left = kept, output = length;
+            for (int right = dropped - 1; right >= 0; right--)
+            {
+                T key = rejected[right];
+                var comparable = (IComparable<T>)key!;
+                int lo = 0, hi = left;
+                while (lo < hi)
+                {
+                    int mid = lo + ((hi - lo) >> 1);
+                    if (comparable.CompareTo(values[mid]) < 0) hi = mid;
+                    else lo = mid + 1;
+                }
+
+                int count = left - lo;
+                output -= count;
+                if (count != 0) values.Slice(lo, count).CopyTo(values[output..]);
+                values[--output] = key;
+                left = lo;
+            }
+            return true;
+        }
+        finally
+        {
+            ArrayPool<T>.Shared.Return(rented, clearArray: true);
+        }
     }
 
     // All values are non-null, and the caller has established IComparable<T>.
@@ -153,12 +250,14 @@ public static partial class Sortz
         {
             T key = Unsafe.Add(ref input, i);
             var comparable = (IComparable<T>)key!;
+            if (comparable.CompareTo(Unsafe.Add(ref input, i - 1)) >= 0)
+                continue;
             int j = i;
-            while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0)
+            do
             {
                 Unsafe.Add(ref input, j) = Unsafe.Add(ref input, j - 1);
                 j--;
-            }
+            } while (j > 0 && comparable.CompareTo(Unsafe.Add(ref input, j - 1)) < 0);
             Unsafe.Add(ref input, j) = key;
         }
     }
@@ -289,7 +388,7 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (count >= 4096 && TrySparseRepair(values))
+        if (count >= 256 && TrySparseRepair(values))
             return;
 
         int i;
@@ -1340,7 +1439,7 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (values.Length >= 64 && TrySparseRepair(values))
+        if (values.Length >= 256 && TrySparseRepair(values))
             return;
 
         if (values.Length <= 32)

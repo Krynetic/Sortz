@@ -51,6 +51,18 @@ public static partial class Sortz
             }
         }
 
+        else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
+        {
+            int width = Vector128<T>.Count;
+            for (; i <= length - width; i += width)
+            {
+                var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector128.LoadUnsafe(ref data, (nuint)i);
+                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
+                    Vector128.LessThanOrEqualAll(a, b))) return false;
+            }
+        }
+
         for (; i < length; i++)
         {
             int c = Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i));
@@ -87,7 +99,7 @@ public static partial class Sortz
         ref T data = ref MemoryMarshal.GetReference(values);
         // The numeric callers have 32- or 64-bit lanes, so sixteen
         // adjacent pairs fit exactly in one or two vectors.
-        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && Unsafe.SizeOf<T>() >= 4)
         {
             int width = Vector512<T>.Count;
             for (int i = 1; i <= 16; i += width)
