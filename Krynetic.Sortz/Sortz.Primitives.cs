@@ -564,6 +564,26 @@ public static partial class Sortz
             for (; i <= values.Length - lanes; i += lanes)
                 (Vector512.LoadUnsafe(ref data, (nuint)i) ^ v).StoreUnsafe(ref data, (nuint)i);
         }
+        if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
+        {
+            int lanes = Vector256<T>.Count;
+            if (i <= values.Length - lanes)
+            {
+                var v = Vector256.Create(mask);
+                for (; i <= values.Length - lanes; i += lanes)
+                    (Vector256.LoadUnsafe(ref data, (nuint)i) ^ v).StoreUnsafe(ref data, (nuint)i);
+            }
+        }
+        if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
+        {
+            int lanes = Vector128<T>.Count;
+            if (i <= values.Length - lanes)
+            {
+                var v = Vector128.Create(mask);
+                for (; i <= values.Length - lanes; i += lanes)
+                    (Vector128.LoadUnsafe(ref data, (nuint)i) ^ v).StoreUnsafe(ref data, (nuint)i);
+            }
+        }
         for (; i < values.Length; i++)
             Unsafe.Add(ref data, i) ^= mask;
     }
