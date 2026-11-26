@@ -1349,6 +1349,15 @@ public static partial class Sortz
             return;
         }
 
+        // Small disordered inputs do not amortize the NaN scan, key
+        // transforms and 64-bit register network. The runtime's specialized
+        // primitive sort also preserves the original floating-point payloads.
+        if (values.Length <= 256)
+        {
+            values.Sort();
+            return;
+        }
+
         // NaNs sort first under Double.CompareTo. Keep every original payload.
         int nanCount = 0;
         if (ContainsNaN(values))
