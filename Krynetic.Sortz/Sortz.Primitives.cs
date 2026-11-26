@@ -713,8 +713,10 @@ public static partial class Sortz
                     (prefixes | (offsets + Vector512.Create((uint)index))).AsInt32()
                         .StoreUnsafe(ref keyData, (nuint)index);
                 }
-                for (int lane = 0; lane < 16; lane++)
-                    varying |= differences.GetElement(lane);
+                var folded = differences.GetLower() | differences.GetUpper();
+                var folded128 = folded.GetLower() | folded.GetUpper();
+                varying |= folded128.GetElement(0) | folded128.GetElement(1) |
+                    folded128.GetElement(2) | folded128.GetElement(3);
             }
             else if (typeof(T) != typeof(decimal) && typeof(T) != typeof(ulong) && BitConverter.IsLittleEndian && Avx512F.IsSupported)
             {
@@ -736,8 +738,9 @@ public static partial class Sortz
                     (prefixes | (offsets + Vector256.Create((uint)index))).AsInt32()
                         .StoreUnsafe(ref keyData, (nuint)index);
                 }
-                for (int lane = 0; lane < 8; lane++)
-                    varying |= differences.GetElement(lane);
+                var folded = differences.GetLower() | differences.GetUpper();
+                varying |= folded.GetElement(0) | folded.GetElement(1) |
+                    folded.GetElement(2) | folded.GetElement(3);
             }
             for (; index < length; index++)
             {
