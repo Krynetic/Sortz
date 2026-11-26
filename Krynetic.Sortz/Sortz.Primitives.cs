@@ -139,22 +139,6 @@ public static partial class Sortz
                 Unsafe.Add(ref h, 768 + (byte)(word >> 56))++;
             }
         }
-        else
-        {
-            for (; index <= values.Length - 8; index += 8)
-            {
-                ulong word = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref data, index));
-                word ^= 0x0101010101010101UL * (uint)sign;
-                Unsafe.Add(ref h, (byte)word)++;
-                Unsafe.Add(ref h, (byte)(word >> 8))++;
-                Unsafe.Add(ref h, (byte)(word >> 16))++;
-                Unsafe.Add(ref h, (byte)(word >> 24))++;
-                Unsafe.Add(ref h, (byte)(word >> 32))++;
-                Unsafe.Add(ref h, (byte)(word >> 40))++;
-                Unsafe.Add(ref h, (byte)(word >> 48))++;
-                Unsafe.Add(ref h, (byte)(word >> 56))++;
-            }
-        }
         for (; index < values.Length; index++)
             Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
 
@@ -207,25 +191,9 @@ public static partial class Sortz
         if (Vector512.IsHardwareAccelerated && length <= 1024)
         {
             Span<int> widened = stackalloc int[length];
-            ref ushort input = ref MemoryMarshal.GetReference(values);
-            ref int output = ref MemoryMarshal.GetReference(widened);
-            int i = 0;
-            for (; i <= length - 32; i += 32)
-            {
-                var (lower, upper) = Vector512.Widen(Vector512.LoadUnsafe(ref input, (nuint)i));
-                lower.AsInt32().StoreUnsafe(ref output, (nuint)i);
-                upper.AsInt32().StoreUnsafe(ref output, (nuint)(i + 16));
-            }
-            for (; i < length; i++) Unsafe.Add(ref output, i) = Unsafe.Add(ref input, i);
+            for (int i = 0; i < length; i++) widened[i] = values[i];
             SimdSort.SortInt32(widened);
-            i = 0;
-            for (; i <= length - 32; i += 32)
-            {
-                var lower = Vector512.LoadUnsafe(ref output, (nuint)i).AsUInt32();
-                var upper = Vector512.LoadUnsafe(ref output, (nuint)(i + 16)).AsUInt32();
-                Vector512.Narrow(lower, upper).StoreUnsafe(ref input, (nuint)i);
-            }
-            for (; i < length; i++) Unsafe.Add(ref input, i) = (ushort)Unsafe.Add(ref output, i);
+            for (int i = 0; i < length; i++) values[i] = (ushort)widened[i];
             return;
         }
 
