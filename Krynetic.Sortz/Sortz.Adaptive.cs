@@ -22,7 +22,8 @@ public static partial class Sortz
         bool descending = data.CompareTo(Unsafe.Add(ref data, length - 1)) > 0;
         int i = 1;
         // Reject disorder quickly without setting up vectors on random inputs.
-        for (; i < Math.Min(length, 5); i++)
+        int probeEnd = Math.Min(length, 5);
+        for (; i < probeEnd; i++)
         {
             int c = Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i));
             if (descending ? c < 0 : c > 0) return false;
@@ -32,6 +33,16 @@ public static partial class Sortz
         {
             int width = Vector512<T>.Count;
             // Check the final overlapping vector rather than a scalar tail.
+            for (; i <= length - 2 * width; i += 2 * width)
+            {
+                var a0 = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b0 = Vector512.LoadUnsafe(ref data, (nuint)i);
+                var a1 = Vector512.LoadUnsafe(ref data, (nuint)(i + width - 1));
+                var b1 = Vector512.LoadUnsafe(ref data, (nuint)(i + width));
+                var c0 = descending ? Vector512.GreaterThanOrEqual(a0, b0) : Vector512.LessThanOrEqual(a0, b0);
+                var c1 = descending ? Vector512.GreaterThanOrEqual(a1, b1) : Vector512.LessThanOrEqual(a1, b1);
+                if (Vector512.ExtractMostSignificantBits(c0 & c1) != (ulong.MaxValue >> (64 - width))) return false;
+            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
@@ -51,6 +62,16 @@ public static partial class Sortz
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
         {
             int width = Vector256<T>.Count;
+            for (; i <= length - 2 * width; i += 2 * width)
+            {
+                var a0 = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b0 = Vector256.LoadUnsafe(ref data, (nuint)i);
+                var a1 = Vector256.LoadUnsafe(ref data, (nuint)(i + width - 1));
+                var b1 = Vector256.LoadUnsafe(ref data, (nuint)(i + width));
+                var c0 = descending ? Vector256.GreaterThanOrEqual(a0, b0) : Vector256.LessThanOrEqual(a0, b0);
+                var c1 = descending ? Vector256.GreaterThanOrEqual(a1, b1) : Vector256.LessThanOrEqual(a1, b1);
+                if (Vector256.ExtractMostSignificantBits(c0 & c1) != (uint.MaxValue >> (32 - width))) return false;
+            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
@@ -71,6 +92,16 @@ public static partial class Sortz
         else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
         {
             int width = Vector128<T>.Count;
+            for (; i <= length - 2 * width; i += 2 * width)
+            {
+                var a0 = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b0 = Vector128.LoadUnsafe(ref data, (nuint)i);
+                var a1 = Vector128.LoadUnsafe(ref data, (nuint)(i + width - 1));
+                var b1 = Vector128.LoadUnsafe(ref data, (nuint)(i + width));
+                var c0 = descending ? Vector128.GreaterThanOrEqual(a0, b0) : Vector128.LessThanOrEqual(a0, b0);
+                var c1 = descending ? Vector128.GreaterThanOrEqual(a1, b1) : Vector128.LessThanOrEqual(a1, b1);
+                if (Vector128.ExtractMostSignificantBits(c0 & c1) != (uint.MaxValue >> (32 - width))) return false;
+            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
@@ -152,27 +183,10 @@ public static partial class Sortz
             {
                 int start = stride * block;
                 inversions = 0;
-                if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && Vector512<T>.Count == 8)
-                {
-                    var a = Vector512.LoadUnsafe(ref data, (nuint)(start - 1));
-                    var b = Vector512.LoadUnsafe(ref data, (nuint)start);
-                    if (BitOperations.PopCount(Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b))) < 5)
+                for (int i = start; i < start + 8; i++)
+                    if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                        ++inversions > 3)
                         return false;
-                }
-                else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported && Vector256<T>.Count == 8)
-                {
-                    var a = Vector256.LoadUnsafe(ref data, (nuint)(start - 1));
-                    var b = Vector256.LoadUnsafe(ref data, (nuint)start);
-                    if (BitOperations.PopCount(Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b))) < 5)
-                        return false;
-                }
-                else
-                {
-                    for (int i = start; i < start + 8; i++)
-                        if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                            ++inversions > 3)
-                            return false;
-                }
             }
         }
 
