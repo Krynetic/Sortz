@@ -42,6 +42,17 @@ public static partial class Sortz
         ref byte data = ref MemoryMarshal.GetReference(bytes);
         if (Vector512.IsHardwareAccelerated)
         {
+            for (; i <= bytes.Length - 256; i += 256)
+            {
+                var a = Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero);
+                var b = Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 64)), Vector512<byte>.Zero);
+                var c = Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 128)), Vector512<byte>.Zero);
+                var d = Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 192)), Vector512<byte>.Zero);
+                count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(a))
+                    + BitOperations.PopCount(Vector512.ExtractMostSignificantBits(b))
+                    + BitOperations.PopCount(Vector512.ExtractMostSignificantBits(c))
+                    + BitOperations.PopCount(Vector512.ExtractMostSignificantBits(d));
+            }
             for (; i <= bytes.Length - 64; i += 64)
                 count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
                     Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
@@ -666,11 +677,21 @@ public static partial class Sortz
         ref int h = ref MemoryMarshal.GetReference(counts);
         bool high = shift >= 64;
         shift &= 63;
-        for (int i = 0; i < source.Length; i++)
+        if (high)
         {
-            UInt128 value = Unsafe.Add(ref input, i);
-            ulong word = high ? (ulong)(value >> 64) : (ulong)value;
-            Unsafe.Add(ref output, Unsafe.Add(ref h, (byte)(word >> shift))++) = value;
+            for (int i = 0; i < source.Length; i++)
+            {
+                UInt128 value = Unsafe.Add(ref input, i);
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (byte)((ulong)(value >> 64) >> shift))++) = value;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                UInt128 value = Unsafe.Add(ref input, i);
+                Unsafe.Add(ref output, Unsafe.Add(ref h, (byte)((ulong)value >> shift))++) = value;
+            }
         }
     }
 
