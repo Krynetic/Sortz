@@ -195,7 +195,21 @@ public static partial class Sortz
             }
 
             if (dropped == 0) return true;
-            Sort(rejected[..dropped]);
+            if (dropped <= 16)
+            {
+                for (int i = 1; i < dropped; i++)
+                {
+                    T key = rejected[i];
+                    int j = i;
+                    while (j > 0 && rejected[j - 1].CompareTo(key) > 0)
+                    {
+                        rejected[j] = rejected[j - 1];
+                        j--;
+                    }
+                    rejected[j] = key;
+                }
+            }
+            else Sort(rejected[..dropped]);
             // Backward merging cannot overwrite an unread kept element.
             int left = kept - 1, right = dropped - 1, output = length - 1;
             while (right >= 0)
