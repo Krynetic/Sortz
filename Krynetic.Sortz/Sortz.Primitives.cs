@@ -483,36 +483,12 @@ public static partial class Sortz
 
     private static void SortHalf(Span<Half> values)
     {
-        if (values.Length >= 64 && Avx512BW.IsSupported && TryOrderedPositiveHalf(values)) return;
         if (TryOrdered(values, Comparer<Half>.Default)) return;
         if (values.Length <= 32) { InsertionSort(values, Comparer<Half>.Default); return; }
         var bits = MemoryMarshal.Cast<Half, ushort>(values);
         TransformHalfKeys(bits, false);
         try { SortUInt16(bits); }
         finally { TransformHalfKeys(bits, true); }
-    }
-
-    private static bool TryOrderedPositiveHalf(Span<Half> values)
-    {
-        var bits = MemoryMarshal.Cast<Half, ushort>(values);
-        ref ushort data = ref MemoryMarshal.GetReference(bits);
-        ushort first = data, last = Unsafe.Add(ref data, bits.Length - 1);
-        if (first > 0x7c00 || last > 0x7c00) return false;
-        bool descending = first > last;
-        var limit = Vector512.Create((ushort)0x7c00);
-        int end = bits.Length - 33;
-        for (int i = 0; ; i += 32)
-        {
-            int offset = Math.Min(i, end);
-            var a = Vector512.LoadUnsafe(ref data, (nuint)offset);
-            var b = Vector512.LoadUnsafe(ref data, (nuint)(offset + 1));
-            var invalid = Vector512.GreaterThan(Vector512.Max(a, b), limit);
-            var disorder = descending ? Vector512.LessThan(a, b) : Vector512.GreaterThan(a, b);
-            if ((invalid | disorder) != Vector512<ushort>.Zero) return false;
-            if (offset == end) break;
-        }
-        if (descending) values.Reverse();
-        return true;
     }
 
     // The same reversible rotation in the 16-bit IEEE-754 domain.
