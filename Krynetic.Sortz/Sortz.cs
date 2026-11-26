@@ -1366,6 +1366,12 @@ public static partial class Sortz
         if (bits.Length < 2)
             return;
 
+        if (bits.Length == 128 && Avx512F.IsSupported)
+        {
+            SimdSort.Sort128UInt64<double>(bits);
+            return;
+        }
+
         TransformDoubleKeys(bits, false);
         try
         {
