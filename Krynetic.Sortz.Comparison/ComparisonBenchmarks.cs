@@ -18,16 +18,19 @@ public enum InputPattern
 
 public sealed class ComparisonConfig : ManualConfig
 {
+    public const bool IncludeCelerityAndHpc = false;
     public const int BatchSize = 8;
     public const int InvocationCount = 16;
 
     public ComparisonConfig()
     {
+        AddFilter(new BenchmarkDotNet.Filters.SimpleFilter(b => IncludeCelerityAndHpc ||
+            b.Descriptor.WorkloadMethod.Name is not ("CeleritySorting" or "HPCsharp")));
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(3)
-            .WithIterationCount(3)
+            .WithWarmupCount(5)
+            .WithIterationCount(5)
             .WithLaunchCount(1)
             .WithInvocationCount(InvocationCount)
             .WithUnrollFactor(InvocationCount));
@@ -38,7 +41,7 @@ public sealed class ComparisonConfig : ManualConfig
 [Config(typeof(ComparisonConfig))]
 public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
 {
-    [Params(128, 1024, 10000, 100000)]
+    [Params(128, 1024, 10000)]
     public int Count { get; set; }
 
     [Params(InputPattern.Random, InputPattern.Ascending, InputPattern.Descending, InputPattern.NearlySorted)]
@@ -95,14 +98,17 @@ public abstract class ComparisonBenchmarks<T> where T : IComparable<T>
         Validate(expected, values => YamSorter.Sort(values));
 
         var actual = (T[])source.Clone();
-        CeleritySort(actual);
-        if (!expected.SequenceEqual(actual))
-            throw new InvalidOperationException("Celerity returned an incorrect result.");
-        source.CopyTo(actual, 0);
-        HpcSort(actual);
-        if (!expected.SequenceEqual(actual))
-            throw new InvalidOperationException("HPCsharp returned an incorrect result.");
-        source.CopyTo(actual, 0);
+        if (ComparisonConfig.IncludeCelerityAndHpc)
+        {
+            CeleritySort(actual);
+            if (!expected.SequenceEqual(actual))
+                throw new InvalidOperationException("Celerity returned an incorrect result.");
+            source.CopyTo(actual, 0);
+            HpcSort(actual);
+            if (!expected.SequenceEqual(actual))
+                throw new InvalidOperationException("HPCsharp returned an incorrect result.");
+            source.CopyTo(actual, 0);
+        }
         AnoprsstSort(actual);
         if (!expected.SequenceEqual(actual))
             throw new InvalidOperationException("Anoprsst returned an incorrect result.");
