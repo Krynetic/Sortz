@@ -1390,6 +1390,17 @@ public static partial class Sortz
     {
         ref double data = ref MemoryMarshal.GetReference(values);
         int length = values.Length;
+        // Reject dense disorder before searching for exchange partners.
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var a = Vector512.LoadUnsafe(ref data);
+            var b = Vector512.LoadUnsafe(ref data, 1);
+            var c = Vector512.LoadUnsafe(ref data, 8);
+            var d = Vector512.LoadUnsafe(ref data, 9);
+            ulong ordered = Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b)) |
+                (Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(c, d)) << 8);
+            if (BitOperations.PopCount(ordered) < 12) return false;
+        }
         int budget = 8;
         int i = 1;
         while (i < length)
