@@ -136,20 +136,10 @@ public static partial class Sortz
         }
         else
         {
-            if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported && Unsafe.SizeOf<T>() == 2)
-            {
-                var a = Vector256.LoadUnsafe(ref data);
-                var b = Vector256.LoadUnsafe(ref data, 1);
-                if (BitOperations.PopCount(Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b))) < 12)
+            for (int i = 1; i <= 16; i++)
+                if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                    ++inversions > 4)
                     return false;
-            }
-            else
-            {
-                for (int i = 1; i <= 16; i++)
-                    if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                        ++inversions > 4)
-                        return false;
-            }
         }
 
         // Reject locally ordered prefixes followed by globally random data.
@@ -160,34 +150,10 @@ public static partial class Sortz
             {
                 int start = stride * block;
                 inversions = 0;
-                if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported && Unsafe.SizeOf<T>() == 2)
-                {
-                    var a = Vector128.LoadUnsafe(ref data, (nuint)(start - 1));
-                    var b = Vector128.LoadUnsafe(ref data, (nuint)start);
-                    if (BitOperations.PopCount(Vector128.ExtractMostSignificantBits(Vector128.LessThanOrEqual(a, b))) < 5)
+                for (int i = start; i < start + 8; i++)
+                    if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                        ++inversions > 3)
                         return false;
-                }
-                else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported && Unsafe.SizeOf<T>() == 4)
-                {
-                    var a = Vector256.LoadUnsafe(ref data, (nuint)(start - 1));
-                    var b = Vector256.LoadUnsafe(ref data, (nuint)start);
-                    if (BitOperations.PopCount(Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b))) < 5)
-                        return false;
-                }
-                else if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && Unsafe.SizeOf<T>() == 8)
-                {
-                    var a = Vector512.LoadUnsafe(ref data, (nuint)(start - 1));
-                    var b = Vector512.LoadUnsafe(ref data, (nuint)start);
-                    if (BitOperations.PopCount(Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b))) < 5)
-                        return false;
-                }
-                else
-                {
-                    for (int i = start; i < start + 8; i++)
-                        if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                            ++inversions > 3)
-                            return false;
-                }
             }
         }
 
@@ -327,11 +293,6 @@ public static partial class Sortz
                     left -= count;
                 }
                 Unsafe.Add(ref data, output--) = key;
-                if (left < 0)
-                {
-                    rejected[..(right + 1)].CopyTo(values[..(right + 1)]);
-                    return true;
-                }
             }
             return true;
         }
