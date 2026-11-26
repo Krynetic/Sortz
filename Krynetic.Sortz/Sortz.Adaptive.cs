@@ -73,43 +73,6 @@ public static partial class Sortz
         return true;
     }
 
-    // Like the CLR's primitive hot path, use direct comparisons on actual
-    // values. A short ordered-run probe gates an allocation-free repair.
-    // Each completed insertion preserves the permutation if the budget fails.
-    private static bool TrySmallDisorderSort<T>(Span<T> values)
-        where T : unmanaged, IComparable<T>
-    {
-        int length = values.Length;
-        ref T data = ref MemoryMarshal.GetReference(values);
-        int disorder = 0;
-        for (int i = 1; i <= 16; i++)
-            if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 && ++disorder > 3)
-                return false;
-
-        // A bounded insertion pass over the actual keys. On random data
-        // or long-distance disorder, stop before paying quadratic costs.
-        int budget = length;
-        for (int i = 1; i < length; i++)
-        {
-            ref T current = ref Unsafe.Add(ref data, i);
-            T key = current;
-            if (Unsafe.Add(ref data, i - 1).CompareTo(key) <= 0) continue;
-            int lo = 0, hi = i;
-            while (lo < hi)
-            {
-                int mid = lo + ((hi - lo) >> 1);
-                if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
-                else hi = mid;
-            }
-            int count = i - lo;
-            if (count > budget) return false;
-            budget -= count;
-            values.Slice(lo, count).CopyTo(values.Slice(lo + 1, count));
-            Unsafe.Add(ref data, lo) = key;
-        }
-        return true;
-    }
-
     // Ordinal strings do not need an interface comparer call per adjacent pair.
     private static bool TryOrderedOrdinal(Span<string?> values)
     {
