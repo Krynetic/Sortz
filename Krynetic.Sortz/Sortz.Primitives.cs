@@ -417,7 +417,7 @@ public static partial class Sortz
         if (values.Length <= 32) { InsertionSort(values, Comparer<float>.Default); return; }
         var bits = MemoryMarshal.Cast<float, uint>(values);
         TransformSingleKeys(bits, false);
-        try { SortInt32(MemoryMarshal.Cast<uint, int>(bits)); }
+        try { SortInt32Unordered(MemoryMarshal.Cast<uint, int>(bits)); }
         finally { TransformSingleKeys(bits, true); }
     }
 
