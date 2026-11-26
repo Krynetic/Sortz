@@ -1378,7 +1378,8 @@ public static partial class Sortz
         TransformDoubleKeys(bits, false);
         try
         {
-            SortUInt64(bits);
+            if (bits.Length is not (>= 512 and <= 2048) || !TryBucketUInt64(bits))
+                SortUInt64(bits);
         }
         finally
         {
