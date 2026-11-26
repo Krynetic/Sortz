@@ -161,11 +161,6 @@ public static partial class Sortz
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<short, ushort>(values);
-        if (values.Length > 1024)
-        {
-            SortUInt16Radix(bits, 128);
-            return;
-        }
         XorKeys(bits, (ushort)0x8000);
         try { SortUInt16Unordered(bits); }
         finally { XorKeys(bits, (ushort)0x8000); }
@@ -196,23 +191,17 @@ public static partial class Sortz
             return;
         }
 
-        SortUInt16Radix(values, 0);
-    }
-
-    private static void SortUInt16Radix(Span<ushort> values, int highSign)
-    {
-        int length = values.Length;
         Span<int> counts = stackalloc int[512];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
         foreach (ushort value in values)
         {
             Unsafe.Add(ref h, (byte)value)++;
-            Unsafe.Add(ref h, 256 + ((value >> 8) ^ highSign))++;
+            Unsafe.Add(ref h, 256 + (value >> 8))++;
         }
         ushort first = values[0];
         bool lowUniform = counts[(byte)first] == length;
-        bool highUniform = counts[256 + ((first >> 8) ^ highSign)] == length;
+        bool highUniform = counts[256 + (first >> 8)] == length;
         if (lowUniform || highUniform)
         {
             if (lowUniform && highUniform) return;
@@ -221,7 +210,7 @@ public static partial class Sortz
             {
                 int frequency = counts[(lowUniform ? 256 : 0) + b];
                 if (frequency == 0) continue;
-                ushort value = lowUniform ? (ushort)(((b ^ highSign) << 8) | (byte)first) : (ushort)((first & 0xff00) | b);
+                ushort value = lowUniform ? (ushort)((b << 8) | (byte)first) : (ushort)((first & 0xff00) | b);
                 values.Slice(offset, frequency).Fill(value);
                 offset += frequency;
             }
@@ -245,7 +234,7 @@ public static partial class Sortz
             for (int i = 0; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref target, i);
-                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + ((value >> 8) ^ highSign))++) = value;
+                Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
             }
         }
         finally { if (rented is not null) ArrayPool<ushort>.Shared.Return(rented); }
