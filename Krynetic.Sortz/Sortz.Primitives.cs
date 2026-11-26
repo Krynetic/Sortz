@@ -441,24 +441,29 @@ public static partial class Sortz
             var nan = Vector512.Create(Nan);
             var rotate = Vector512.Create(Rotate);
             var limit = Vector512.Create(inverse ? 2 * Nan : 0xff800000u);
-            for (; i <= bits.Length - 16; i += 16)
+            if (!inverse)
             {
-                var v = Vector512.LoadUnsafe(ref data, (nuint)i);
-                if (!inverse)
+                for (; i <= bits.Length - 16; i += 16)
                 {
+                    var v = Vector512.LoadUnsafe(ref data, (nuint)i);
                     v ^= ((v.AsInt32() >> 31).AsUInt32() | sign);
                     v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
                         Vector512.ConditionalSelect(Vector512.GreaterThan(v, limit), v - rotate, v + nan));
                     v ^= sign;
+                    v.StoreUnsafe(ref data, (nuint)i);
                 }
-                else
+            }
+            else
+            {
+                for (; i <= bits.Length - 16; i += 16)
                 {
+                    var v = Vector512.LoadUnsafe(ref data, (nuint)i);
                     v ^= sign;
                     v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
                         Vector512.ConditionalSelect(Vector512.LessThan(v, limit), v + rotate, v - nan));
                     v ^= (~(v.AsInt32() >> 31).AsUInt32() | sign);
+                    v.StoreUnsafe(ref data, (nuint)i);
                 }
-                v.StoreUnsafe(ref data, (nuint)i);
             }
         }
 
@@ -503,22 +508,27 @@ public static partial class Sortz
             var nan = Vector512.Create(Nan);
             var rotate = Vector512.Create(Rotate);
             var limit = Vector512.Create((ushort)(inverse ? 2 * Nan : 0xfc00));
-            for (; i <= bits.Length - 32; i += 32)
+            if (!inverse)
             {
-                var v = Vector512.LoadUnsafe(ref data, (nuint)i);
-                if (!inverse)
+                for (; i <= bits.Length - 32; i += 32)
                 {
+                    var v = Vector512.LoadUnsafe(ref data, (nuint)i);
                     v ^= ((v.AsInt16() >> 15).AsUInt16() | sign);
                     v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
                         Vector512.ConditionalSelect(Vector512.GreaterThan(v, limit), v - rotate, v + nan));
+                    v.StoreUnsafe(ref data, (nuint)i);
                 }
-                else
+            }
+            else
+            {
+                for (; i <= bits.Length - 32; i += 32)
                 {
+                    var v = Vector512.LoadUnsafe(ref data, (nuint)i);
                     v = Vector512.ConditionalSelect(Vector512.LessThan(v, nan), v,
                         Vector512.ConditionalSelect(Vector512.LessThan(v, limit), v + rotate, v - nan));
                     v ^= (~(v.AsInt16() >> 15).AsUInt16() | sign);
+                    v.StoreUnsafe(ref data, (nuint)i);
                 }
-                v.StoreUnsafe(ref data, (nuint)i);
             }
         }
         for (; i < bits.Length; i++)
