@@ -42,19 +42,6 @@ public static partial class Sortz
         ref byte data = ref MemoryMarshal.GetReference(bytes);
         if (Vector512.IsHardwareAccelerated)
         {
-            int count1 = 0, count2 = 0, count3 = 0;
-            for (; i <= bytes.Length - 256; i += 256)
-            {
-                count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
-                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
-                count1 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
-                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 64)), Vector512<byte>.Zero)));
-                count2 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
-                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 128)), Vector512<byte>.Zero)));
-                count3 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
-                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 192)), Vector512<byte>.Zero)));
-            }
-            count += count1 + count2 + count3;
             for (; i <= bytes.Length - 64; i += 64)
                 count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
                     Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
