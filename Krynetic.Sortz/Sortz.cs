@@ -1527,6 +1527,19 @@ public static partial class Sortz
         {
             var lo = Vector512.Create(min);
             var hi = lo;
+            var lo2 = lo;
+            var hi2 = hi;
+            for (; i <= length - 16; i += 16)
+            {
+                var a = Vector512.LoadUnsafe(ref input, (nuint)i);
+                var b = Vector512.LoadUnsafe(ref input, (nuint)(i + 8));
+                lo = Vector512.Min(lo, a);
+                hi = Vector512.Max(hi, a);
+                lo2 = Vector512.Min(lo2, b);
+                hi2 = Vector512.Max(hi2, b);
+            }
+            lo = Vector512.Min(lo, lo2);
+            hi = Vector512.Max(hi, hi2);
             for (; i <= length - 8; i += 8)
             {
                 var v = Vector512.LoadUnsafe(ref input, (nuint)i);
