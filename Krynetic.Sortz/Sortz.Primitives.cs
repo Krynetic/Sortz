@@ -243,9 +243,10 @@ public static partial class Sortz
     private static void SortUInt32(Span<uint> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         XorKeys(values, 0x80000000u);
-        try { SortInt32(MemoryMarshal.Cast<uint, int>(values)); }
+        try { SortInt32Unordered(MemoryMarshal.Cast<uint, int>(values)); }
         finally { XorKeys(values, 0x80000000u); }
     }
 
