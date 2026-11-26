@@ -577,25 +577,11 @@ public static partial class Sortz
 
     private static void PrefixPrimitive(Span<int> histogram)
     {
-        int sum = 0, i = 0;
-        ref int data = ref MemoryMarshal.GetReference(histogram);
-        if (Sse2.IsSupported)
+        int sum = 0;
+        for (int i = 0; i < histogram.Length; i++)
         {
-            for (; i <= histogram.Length - 4; i += 4)
-            {
-                var v = Vector128.LoadUnsafe(ref data, (nuint)i);
-                var inclusive = Sse2.Add(v, Sse2.ShiftLeftLogical128BitLane(v.AsByte(), 4).AsInt32());
-                inclusive = Sse2.Add(inclusive, Sse2.ShiftLeftLogical128BitLane(inclusive.AsByte(), 8).AsInt32());
-                var exclusive = Sse2.Add(Sse2.ShiftLeftLogical128BitLane(inclusive.AsByte(), 4).AsInt32(), Vector128.Create(sum));
-                exclusive.StoreUnsafe(ref data, (nuint)i);
-                sum += inclusive.GetElement(3);
-            }
-        }
-        for (; i < histogram.Length; i++)
-        {
-            ref int item = ref Unsafe.Add(ref data, i);
-            int count = item;
-            item = sum;
+            int count = histogram[i];
+            histogram[i] = sum;
             sum += count;
         }
     }
