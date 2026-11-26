@@ -391,6 +391,12 @@ public static partial class Sortz
         if (count >= 256 && TrySparseRepair(values))
             return;
 
+        SortInt32Unordered(values);
+    }
+
+    private static void SortInt32Unordered(Span<int> values)
+    {
+        int count = values.Length;
         int i;
 
         if (count <= 32)

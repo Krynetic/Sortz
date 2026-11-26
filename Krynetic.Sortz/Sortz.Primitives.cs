@@ -125,12 +125,18 @@ public static partial class Sortz
         int index = 0;
         if (striped)
         {
-            for (; index <= values.Length - 4; index += 4)
+            for (; index <= values.Length - 8; index += 8)
             {
-                Unsafe.Add(ref h, Unsafe.Add(ref data, index) ^ sign)++;
-                Unsafe.Add(ref h, 256 + (Unsafe.Add(ref data, index + 1) ^ sign))++;
-                Unsafe.Add(ref h, 512 + (Unsafe.Add(ref data, index + 2) ^ sign))++;
-                Unsafe.Add(ref h, 768 + (Unsafe.Add(ref data, index + 3) ^ sign))++;
+                ulong word = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref data, index));
+                word ^= 0x0101010101010101UL * (uint)sign;
+                Unsafe.Add(ref h, (byte)word)++;
+                Unsafe.Add(ref h, 256 + (byte)(word >> 8))++;
+                Unsafe.Add(ref h, 512 + (byte)(word >> 16))++;
+                Unsafe.Add(ref h, 768 + (byte)(word >> 24))++;
+                Unsafe.Add(ref h, (byte)(word >> 32))++;
+                Unsafe.Add(ref h, 256 + (byte)(word >> 40))++;
+                Unsafe.Add(ref h, 512 + (byte)(word >> 48))++;
+                Unsafe.Add(ref h, 768 + (byte)(word >> 56))++;
             }
         }
         for (; index < values.Length; index++)
@@ -159,9 +165,10 @@ public static partial class Sortz
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
+        if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<short, ushort>(values);
         XorKeys(bits, (ushort)0x8000);
-        try { SortUInt16(bits); }
+        try { SortUInt16Unordered(bits); }
         finally { XorKeys(bits, (ushort)0x8000); }
     }
 
@@ -169,6 +176,11 @@ public static partial class Sortz
     {
         if (TryOrderedInteger(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
+        SortUInt16Unordered(values);
+    }
+
+    private static void SortUInt16Unordered(Span<ushort> values)
+    {
         int length = values.Length;
         if (length <= 32) { InsertionInteger(values); return; }
         if (Avx512BW.IsSupported && length <= 1024)
@@ -237,9 +249,10 @@ public static partial class Sortz
     private static void SortUInt32(Span<uint> values)
     {
         if (TryOrderedInteger(values)) return;
+        if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         XorKeys(values, 0x80000000u);
-        try { SortInt32(MemoryMarshal.Cast<uint, int>(values)); }
+        try { SortInt32Unordered(MemoryMarshal.Cast<uint, int>(values)); }
         finally { XorKeys(values, 0x80000000u); }
     }
 
