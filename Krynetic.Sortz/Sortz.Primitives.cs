@@ -200,37 +200,10 @@ public static partial class Sortz
         Span<int> counts = stackalloc int[512];
         counts.Clear();
         ref int h = ref MemoryMarshal.GetReference(counts);
-        // Independent histogram banks avoid repeated-address dependencies.
-        Span<int> alternate = stackalloc int[512];
-        alternate.Clear();
-        ref int h2 = ref MemoryMarshal.GetReference(alternate);
-        ref ushort input = ref MemoryMarshal.GetReference(values);
-        int k = 0;
-        for (; k <= length - 2; k += 2)
+        foreach (ushort value in values)
         {
-            ushort a = Unsafe.Add(ref input, k);
-            ushort b = Unsafe.Add(ref input, k + 1);
-            Unsafe.Add(ref h, (byte)a)++;
-            Unsafe.Add(ref h2, (byte)b)++;
-            Unsafe.Add(ref h, 256 + (a >> 8))++;
-            Unsafe.Add(ref h2, 256 + (b >> 8))++;
-        }
-        if (k < length)
-        {
-            ushort a = Unsafe.Add(ref input, k);
-            Unsafe.Add(ref h, (byte)a)++;
-            Unsafe.Add(ref h, 256 + (a >> 8))++;
-        }
-        if (Vector512.IsHardwareAccelerated)
-        {
-            for (int j = 0; j < 512; j += 16)
-                (Vector512.LoadUnsafe(ref h, (nuint)j) + Vector512.LoadUnsafe(ref h2, (nuint)j))
-                    .StoreUnsafe(ref h, (nuint)j);
-        }
-        else
-        {
-            for (int j = 0; j < 512; j++)
-                Unsafe.Add(ref h, j) += Unsafe.Add(ref h2, j);
+            Unsafe.Add(ref h, (byte)value)++;
+            Unsafe.Add(ref h, 256 + (value >> 8))++;
         }
         ushort first = values[0];
         bool lowUniform = counts[(byte)first] == length;
@@ -574,17 +547,16 @@ public static partial class Sortz
 
     private static void InsertionInteger<T>(Span<T> values) where T : unmanaged, IBinaryInteger<T>
     {
-        ref T data = ref MemoryMarshal.GetReference(values);
         for (int i = 1; i < values.Length; i++)
         {
-            T value = Unsafe.Add(ref data, i);
+            T value = values[i];
             int j = i;
-            while (j > 0 && Unsafe.Add(ref data, j - 1) > value)
+            while (j > 0 && values[j - 1] > value)
             {
-                Unsafe.Add(ref data, j) = Unsafe.Add(ref data, j - 1);
+                values[j] = values[j - 1];
                 j--;
             }
-            Unsafe.Add(ref data, j) = value;
+            values[j] = value;
         }
     }
 
