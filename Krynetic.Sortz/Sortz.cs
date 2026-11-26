@@ -1340,7 +1340,10 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (values.Length >= 64 && TrySparseRepair(values))
+        if (values.Length is >= 64 and <= 256 && TrySmallDisplacementRepair(values))
+            return;
+
+        if (values.Length >= 512 && TrySparseRepair(values))
             return;
 
         if (values.Length <= 32)
@@ -1369,7 +1372,12 @@ public static partial class Sortz
         TransformDoubleKeys(bits, false);
         try
         {
-            SortUInt64(bits);
+            // The existing unsigned SIMD sorting network is substantially
+            // cheaper than radix setup on small random floating-point inputs.
+            if (Vector512.IsHardwareAccelerated && bits.Length <= 128)
+                SimdSort.SortUInt64(bits);
+            else
+                SortUInt64(bits);
         }
         finally
         {
