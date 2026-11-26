@@ -449,6 +449,20 @@ public static partial class Sortz
             }
         }
 
+        else if (Vector256.IsHardwareAccelerated)
+        {
+            var prefixMask = Vector256.Create(unchecked((int)~indexMask));
+            for (; index <= length - 8; index += 8)
+            {
+                var current = Vector256.LoadUnsafe(ref keys, (nuint)index);
+                var previous = Vector256.LoadUnsafe(ref keys, (nuint)(index - 1));
+                uint matches = Vector256.ExtractMostSignificantBits(
+                    Vector256.Equals((current ^ previous) & prefixMask, Vector256<int>.Zero));
+                if (matches != 0)
+                    return index + BitOperations.TrailingZeroCount(matches);
+            }
+        }
+
         for (; index < length; index++)
             if (((uint)(Unsafe.Add(ref keys, index) ^ Unsafe.Add(ref keys, index - 1)) & ~indexMask) == 0)
                 break;
@@ -653,13 +667,7 @@ public static partial class Sortz
                 if (histogram[(int)((first >> shift) & mask)] == count)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixPrimitive(histogram);
 
                 if (inScratch)
                     ScatterWide(scratch, values, histogram, shift, mask);
@@ -727,13 +735,7 @@ public static partial class Sortz
                 if (histogram[bucket] == count)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixPrimitive(histogram);
 
                 if (inScratch)
                     ScatterInt32(scratch, values, histogram, shift, sign);
@@ -1159,13 +1161,7 @@ public static partial class Sortz
             for (int digit = 0; digit < 3; digit++)
             {
                 Span<int> histogram = counts.Slice(digit * 1024, 1024);
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixPrimitive(histogram);
                 if ((digit & 1) == 0)
                     ScatterUInt64Wide(keys, scratch, histogram, shift + digit * 10, 1023);
                 else
@@ -1825,13 +1821,7 @@ public static partial class Sortz
                 ulong mask = (uint)(histogram.Length - 1);
                 if (histogram[(int)((first >> shift) & mask)] == bits.Length)
                     continue;
-                int sum = 0;
-                for (int b = 0; b < histogram.Length; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixPrimitive(histogram);
                 if (inScratch)
                     ScatterUInt64Wide(scratch, bits, histogram, shift, mask);
                 else
@@ -1910,13 +1900,7 @@ public static partial class Sortz
                 if (histogram[(byte)(first >> shift)] == bits.Length)
                     continue;
 
-                int sum = 0;
-                for (int b = 0; b < 256; b++)
-                {
-                    int frequency = histogram[b];
-                    histogram[b] = sum;
-                    sum += frequency;
-                }
+                PrefixPrimitive(histogram);
 
                 if (inScratch)
                     ScatterUInt64(scratch, bits, histogram, shift);
