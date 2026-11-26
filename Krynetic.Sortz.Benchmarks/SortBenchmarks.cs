@@ -1,6 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using Krynetic.Sortz.Tests;
-using System.Runtime.InteropServices;
 
 namespace Krynetic.Sortz.Benchmarks;
 
@@ -14,20 +12,7 @@ public enum InputPattern
 
 [MemoryDiagnoser]
 [Config(typeof(SortBenchmarkConfig))]
-public class Int32SortBenchmarks : PrimitiveBitSortBenchmark<int>
-{
-    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
-    public void BuiltInArraySort()
-    {
-        foreach (var array in Arrays.AsSpan(NextInvocationOffset(), SortBenchmarkConfig.BatchSize)) Array.Sort(array);
-    }
-
-    [Benchmark(OperationsPerInvoke = SortBenchmarkConfig.BatchSize)]
-    public void BuiltInSpanSort()
-    {
-        foreach (var list in Lists.AsSpan(NextInvocationOffset(), SortBenchmarkConfig.BatchSize)) CollectionsMarshal.AsSpan(list).Sort();
-    }
-}
+public class Int32SortBenchmarks : PrimitiveBitSortBenchmark<int> { }
 
 [MemoryDiagnoser]
 [Config(typeof(SortBenchmarkConfig))]

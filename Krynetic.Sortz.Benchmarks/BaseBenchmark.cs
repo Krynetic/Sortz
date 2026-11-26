@@ -24,7 +24,6 @@ public abstract class TypedSortBenchmark<T>
     private T[] source = null!;
     private int invocationIndex;
     protected List<T>[] Lists { get; private set; } = null!;
-    protected T[][] Arrays { get; private set; } = null!;
     protected virtual IComparer<T>? Comparer => null;
     protected abstract T[] Create(Random random, int count);
 
@@ -37,11 +36,9 @@ public abstract class TypedSortBenchmark<T>
         ApplyPattern(source, Pattern, Comparer, new Random(43));
         int total = SortBenchmarkConfig.BatchSize * SortBenchmarkConfig.InvocationCount;
         Lists = new List<T>[total];
-        Arrays = new T[total][];
         for (int i = 0; i < total; i++)
         {
             Lists[i] = new List<T>(source);
-            Arrays[i] = new T[Count];
         }
     }
 
@@ -102,7 +99,6 @@ public abstract class TypedSortBenchmark<T>
         for (int i = 0; i < Lists.Length; i++)
         {
             source.AsSpan().CopyTo(CollectionsMarshal.AsSpan(Lists[i]));
-            source.AsSpan().CopyTo(Arrays[i]);
         }
     }
 
