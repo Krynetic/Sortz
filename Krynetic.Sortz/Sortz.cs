@@ -75,7 +75,7 @@ public static partial class Sortz
                     if (values[i] is null)
                         Swap(values, first++, i);
                 var nonNull = values[first..];
-                if (nonNull.Length < 64 || !TryRepairComparableReference(nonNull))
+                if (nonNull.Length < 256 || !TryRepairComparableReference(nonNull))
                     SortComparableReference(nonNull, depth);
             }
             else
@@ -100,6 +100,16 @@ public static partial class Sortz
         for (int i = 1; i <= 16; i++)
             if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 4)
                 return false;
+
+        // Reject random input before renting scratch or compacting references.
+        for (int block = 1; block <= 3; block++)
+        {
+            int start = (length >> 2) * block;
+            disorder = 0;
+            for (int i = start; i < start + 8; i++)
+                if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 2)
+                    return false;
+        }
 
         int capacity = Math.Max(8, length >> 3);
         T[] rented = ArrayPool<T>.Shared.Rent(capacity);
