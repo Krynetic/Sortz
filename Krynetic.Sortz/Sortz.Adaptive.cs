@@ -58,6 +58,14 @@ public static partial class Sortz
                 if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
                     Vector256.LessThanOrEqualAll(a, b))) return false;
             }
+            if (i < length && length > width)
+            {
+                var a = Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1));
+                var b = Vector256.LoadUnsafe(ref data, (nuint)(length - width));
+                if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
+                    Vector256.LessThanOrEqualAll(a, b))) return false;
+                i = length;
+            }
         }
 
         else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
@@ -69,6 +77,14 @@ public static partial class Sortz
                 var b = Vector128.LoadUnsafe(ref data, (nuint)i);
                 if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
                     Vector128.LessThanOrEqualAll(a, b))) return false;
+            }
+            if (i < length && length > width)
+            {
+                var a = Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1));
+                var b = Vector128.LoadUnsafe(ref data, (nuint)(length - width));
+                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
+                    Vector128.LessThanOrEqualAll(a, b))) return false;
+                i = length;
             }
         }
 
@@ -136,10 +152,27 @@ public static partial class Sortz
             {
                 int start = stride * block;
                 inversions = 0;
-                for (int i = start; i < start + 8; i++)
-                    if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                        ++inversions > 3)
+                if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported && Vector512<T>.Count == 8)
+                {
+                    var a = Vector512.LoadUnsafe(ref data, (nuint)(start - 1));
+                    var b = Vector512.LoadUnsafe(ref data, (nuint)start);
+                    if (BitOperations.PopCount(Vector512.ExtractMostSignificantBits(Vector512.LessThanOrEqual(a, b))) < 5)
                         return false;
+                }
+                else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported && Vector256<T>.Count == 8)
+                {
+                    var a = Vector256.LoadUnsafe(ref data, (nuint)(start - 1));
+                    var b = Vector256.LoadUnsafe(ref data, (nuint)start);
+                    if (BitOperations.PopCount(Vector256.ExtractMostSignificantBits(Vector256.LessThanOrEqual(a, b))) < 5)
+                        return false;
+                }
+                else
+                {
+                    for (int i = start; i < start + 8; i++)
+                        if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
+                            ++inversions > 3)
+                            return false;
+                }
             }
         }
 
