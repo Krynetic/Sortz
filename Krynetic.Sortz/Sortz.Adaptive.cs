@@ -22,8 +22,7 @@ public static partial class Sortz
         bool descending = data.CompareTo(Unsafe.Add(ref data, length - 1)) > 0;
         int i = 1;
         // Reject disorder quickly without setting up vectors on random inputs.
-        int probeEnd = Math.Min(length, 5);
-        for (; i < probeEnd; i++)
+        for (; i < Math.Min(length, 5); i++)
         {
             int c = Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i));
             if (descending ? c < 0 : c > 0) return false;
@@ -33,16 +32,6 @@ public static partial class Sortz
         {
             int width = Vector512<T>.Count;
             // Check the final overlapping vector rather than a scalar tail.
-            for (; i <= length - 2 * width; i += 2 * width)
-            {
-                var a0 = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b0 = Vector512.LoadUnsafe(ref data, (nuint)i);
-                var a1 = Vector512.LoadUnsafe(ref data, (nuint)(i + width - 1));
-                var b1 = Vector512.LoadUnsafe(ref data, (nuint)(i + width));
-                var c0 = descending ? Vector512.GreaterThanOrEqual(a0, b0) : Vector512.LessThanOrEqual(a0, b0);
-                var c1 = descending ? Vector512.GreaterThanOrEqual(a1, b1) : Vector512.LessThanOrEqual(a1, b1);
-                if (Vector512.ExtractMostSignificantBits(c0 & c1) != (ulong.MaxValue >> (64 - width))) return false;
-            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
@@ -62,16 +51,6 @@ public static partial class Sortz
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
         {
             int width = Vector256<T>.Count;
-            for (; i <= length - 2 * width; i += 2 * width)
-            {
-                var a0 = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b0 = Vector256.LoadUnsafe(ref data, (nuint)i);
-                var a1 = Vector256.LoadUnsafe(ref data, (nuint)(i + width - 1));
-                var b1 = Vector256.LoadUnsafe(ref data, (nuint)(i + width));
-                var c0 = descending ? Vector256.GreaterThanOrEqual(a0, b0) : Vector256.LessThanOrEqual(a0, b0);
-                var c1 = descending ? Vector256.GreaterThanOrEqual(a1, b1) : Vector256.LessThanOrEqual(a1, b1);
-                if (Vector256.ExtractMostSignificantBits(c0 & c1) != (uint.MaxValue >> (32 - width))) return false;
-            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
@@ -79,43 +58,17 @@ public static partial class Sortz
                 if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
                     Vector256.LessThanOrEqualAll(a, b))) return false;
             }
-            if (i < length && length > width)
-            {
-                var a = Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1));
-                var b = Vector256.LoadUnsafe(ref data, (nuint)(length - width));
-                if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
-                    Vector256.LessThanOrEqualAll(a, b))) return false;
-                i = length;
-            }
         }
 
         else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
         {
             int width = Vector128<T>.Count;
-            for (; i <= length - 2 * width; i += 2 * width)
-            {
-                var a0 = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b0 = Vector128.LoadUnsafe(ref data, (nuint)i);
-                var a1 = Vector128.LoadUnsafe(ref data, (nuint)(i + width - 1));
-                var b1 = Vector128.LoadUnsafe(ref data, (nuint)(i + width));
-                var c0 = descending ? Vector128.GreaterThanOrEqual(a0, b0) : Vector128.LessThanOrEqual(a0, b0);
-                var c1 = descending ? Vector128.GreaterThanOrEqual(a1, b1) : Vector128.LessThanOrEqual(a1, b1);
-                if (Vector128.ExtractMostSignificantBits(c0 & c1) != (uint.MaxValue >> (32 - width))) return false;
-            }
             for (; i <= length - width; i += width)
             {
                 var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
                 var b = Vector128.LoadUnsafe(ref data, (nuint)i);
                 if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
                     Vector128.LessThanOrEqualAll(a, b))) return false;
-            }
-            if (i < length && length > width)
-            {
-                var a = Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1));
-                var b = Vector128.LoadUnsafe(ref data, (nuint)(length - width));
-                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
-                    Vector128.LessThanOrEqualAll(a, b))) return false;
-                i = length;
             }
         }
 
@@ -248,7 +201,12 @@ public static partial class Sortz
                         end++;
                     int count = end - read;
                     if (kept != read)
-                        values.Slice(read, count).CopyTo(values.Slice(kept, count));
+                    {
+                        if (count == 1)
+                            Unsafe.Add(ref data, kept) = current;
+                        else
+                            values.Slice(read, count).CopyTo(values.Slice(kept, count));
+                    }
                     kept += count;
                     read = end - 1;
                     continue;
@@ -277,7 +235,10 @@ public static partial class Sortz
 
                 if (removeSuffix)
                 {
-                    values.Slice(cut, removeCount).CopyTo(rejected.Slice(dropped, removeCount));
+                    if (removeCount == 1)
+                        rejected[dropped] = Unsafe.Add(ref data, cut);
+                    else
+                        values.Slice(cut, removeCount).CopyTo(rejected.Slice(dropped, removeCount));
                     dropped += removeCount;
                     Unsafe.Add(ref data, cut) = current;
                     kept = cut + 1;
