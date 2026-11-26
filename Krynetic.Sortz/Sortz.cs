@@ -91,8 +91,8 @@ public static partial class Sortz
         internal static readonly bool Comparable = typeof(IComparable<T>).IsAssignableFrom(typeof(T));
     }
 
-    // Repair a bounded number of misplaced keys with binary insertion.
-    // The sample rejects random inputs; the move budget bounds worst-case work.
+    // Compact a monotonic subsequence and merge only the rejected keys.
+    // On failure restore the permutation before falling back to introsort.
     private static bool TryRepairComparableReference<T>(Span<T> values)
     {
         int length = values.Length;
@@ -101,32 +101,72 @@ public static partial class Sortz
             if (((IComparable<T>)values[i]!).CompareTo(values[i - 1]) < 0 && ++disorder > 4)
                 return false;
 
-        int budget = length > int.MaxValue / 4 ? int.MaxValue : length * 4;
-        for (int i = 1; i < length; i++)
+        int capacity = Math.Max(8, length >> 3);
+        T[] rented = ArrayPool<T>.Shared.Rent(capacity);
+        Span<T> rejected = rented.AsSpan(0, capacity);
+        int kept = 1, dropped = 0;
+        try
         {
-            T key = values[i];
-            var comparable = (IComparable<T>)key!;
-            if (comparable.CompareTo(values[i - 1]) >= 0)
-                continue;
-
-            int lo = 0, hi = i;
-            while (lo < hi)
+            for (int read = 1; read < length; read++)
             {
-                int mid = lo + ((hi - lo) >> 1);
-                if (comparable.CompareTo(values[mid]) < 0) hi = mid;
-                else lo = mid + 1;
+                T key = values[read];
+                var comparable = (IComparable<T>)key!;
+                if (comparable.CompareTo(values[kept - 1]) >= 0)
+                {
+                    if (kept != read) values[kept] = key;
+                    kept++;
+                    continue;
+                }
+
+                int cut = kept - 1, limit = Math.Max(0, kept - 8);
+                while (cut > limit && comparable.CompareTo(values[cut - 1]) < 0)
+                    cut--;
+                bool removeSuffix = cut == 0 || comparable.CompareTo(values[cut - 1]) >= 0;
+                int count = removeSuffix ? kept - cut : 1;
+                if (count > capacity - dropped)
+                {
+                    values[read..].CopyTo(values[kept..]);
+                    rejected[..dropped].CopyTo(values[(length - dropped)..]);
+                    return false;
+                }
+
+                if (removeSuffix)
+                {
+                    values.Slice(cut, count).CopyTo(rejected[dropped..]);
+                    dropped += count;
+                    values[cut] = key;
+                    kept = cut + 1;
+                }
+                else rejected[dropped++] = key;
             }
 
-            int count = i - lo;
-            if (count > budget)
-                return false;
+            if (dropped == 0) return true;
+            SortComparableReference(rejected[..dropped], 2 * (BitOperations.Log2((uint)dropped) + 1));
+            int left = kept, output = length;
+            for (int right = dropped - 1; right >= 0; right--)
+            {
+                T key = rejected[right];
+                var comparable = (IComparable<T>)key!;
+                int lo = 0, hi = left;
+                while (lo < hi)
+                {
+                    int mid = lo + ((hi - lo) >> 1);
+                    if (comparable.CompareTo(values[mid]) < 0) hi = mid;
+                    else lo = mid + 1;
+                }
 
-            budget -= count;
-            values.Slice(lo, count).CopyTo(values.Slice(lo + 1, count));
-            values[lo] = key;
+                int count = left - lo;
+                output -= count;
+                if (count != 0) values.Slice(lo, count).CopyTo(values[output..]);
+                values[--output] = key;
+                left = lo;
+            }
+            return true;
         }
-
-        return true;
+        finally
+        {
+            ArrayPool<T>.Shared.Return(rented, clearArray: true);
+        }
     }
 
     // All values are non-null, and the caller has established IComparable<T>.
