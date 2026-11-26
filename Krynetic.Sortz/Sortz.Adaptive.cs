@@ -76,47 +76,6 @@ public static partial class Sortz
         return true;
     }
 
-    // Nearly sorted values are often a small number of displaced elements.
-    // Repair adjacent inversions with a bounded binary insertion pass, leaving
-    // arbitrary inputs unchanged when the inversion budget is exceeded.
-    private static bool TrySmallDisplacementRepair<T>(Span<T> values)
-        where T : unmanaged, IComparable<T>
-    {
-        int length = values.Length;
-        if (length is < 2 or > 256)
-            return false;
-
-        ref T data = ref MemoryMarshal.GetReference(values);
-        int inversions = 0;
-        for (int i = 1; i < length; i++)
-        {
-            if (Unsafe.Add(ref data, i - 1).CompareTo(Unsafe.Add(ref data, i)) > 0 &&
-                ++inversions > 12)
-                return false;
-        }
-
-        // The scan above is read-only. Each insertion is exact, even for
-        // signed zero and duplicate values, using the type's CompareTo order.
-        for (int i = 1; i < length; i++)
-        {
-            T key = Unsafe.Add(ref data, i);
-            if (Unsafe.Add(ref data, i - 1).CompareTo(key) <= 0)
-                continue;
-            int lo = 0, hi = i;
-            while (lo < hi)
-            {
-                int mid = lo + ((hi - lo) >> 1);
-                if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0)
-                    lo = mid + 1;
-                else
-                    hi = mid;
-            }
-            values.Slice(lo, i - lo).CopyTo(values.Slice(lo + 1, i - lo));
-            Unsafe.Add(ref data, lo) = key;
-        }
-        return true;
-    }
-
     // Keep a monotonic subsequence and sort only the discarded elements.
     // Limit scratch to one eighth of the input; if the estimate was wrong,
     // reconstruct the permutation and let the existing radix path finish.
@@ -243,6 +202,21 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 int moved = 0;
+                if (length >= 512 && Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+                {
+                    int width = Vector512<T>.Count;
+                    if (left >= width - 1)
+                    {
+                        var run = Vector512.LoadUnsafe(ref data, (nuint)(left - width + 1));
+                        if (Vector512.GreaterThanAll(run, Vector512.Create(key)))
+                        {
+                            run.StoreUnsafe(ref data, (nuint)(output - width + 1));
+                            left -= width;
+                            output -= width;
+                            moved = 8;
+                        }
+                    }
+                }
                 while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
                     Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
