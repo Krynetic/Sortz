@@ -226,11 +226,18 @@ public static partial class Sortz
     private static void SortInt64(Span<long> values)
     {
         if (TryOrderedNumeric(values)) return;
-        if (values.Length >= 64 && TrySparseRepair(values)) return;
+        if (values.Length is >= 64 and <= 256 && TrySmallDisplacementRepair(values)) return;
+        if (values.Length >= 512 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<long, ulong>(values);
         XorKeys(bits, 0x8000000000000000UL);
-        try { SortPrimitiveUInt64(bits); }
+        try
+        {
+            if (Vector512.IsHardwareAccelerated && bits.Length <= 128)
+                SimdSort.SortUInt64(bits);
+            else
+                SortPrimitiveUInt64(bits);
+        }
         finally { XorKeys(bits, 0x8000000000000000UL); }
     }
 
