@@ -1340,21 +1340,22 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
+        if (values.Length >= 64 && TrySparseRepair(values))
+            return;
+
         if (values.Length <= 32)
         {
             InsertionSort(values, Comparer<double>.Default);
             return;
         }
 
+        // Retain the native fallback for small disordered doubles, but
+        // preserve the baseline sparse-repair dispatch and its size guard.
         if (values.Length <= 256)
         {
-            if (!TrySparseRepair(values))
-                values.Sort();
+            values.Sort();
             return;
         }
-
-        if (TrySparseRepair(values))
-            return;
 
         // NaNs sort first under Double.CompareTo. Keep every original payload.
         int nanCount = 0;
