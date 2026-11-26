@@ -289,7 +289,7 @@ public static partial class Sortz
         if (TryOrderedNumeric(values))
             return;
 
-        if (count >= 4096 && TrySparseRepair(values))
+        if (count >= 64 && TrySparseRepair(values))
             return;
 
         int i;
