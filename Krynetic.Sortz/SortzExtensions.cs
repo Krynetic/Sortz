@@ -11,31 +11,31 @@ public static class SortzExtensions
 {
     /// <inheritdoc cref="Sortz.Sort{T}(T[], IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this T[] array, IComparer<T>? comparer = null) =>
-        Sortz.Sort(array, comparer);
+    public static void Sortz<T>(this T[] array, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(array, comparer);
 
     /// <inheritdoc cref="Sortz.Sort{T}(List{T}, IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this List<T> list, IComparer<T>? comparer = null) =>
-        Sortz.Sort(list, comparer);
+    public static void Sortz<T>(this List<T> list, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(list, comparer);
 
     /// <inheritdoc cref="Sortz.Sort{T}(Span{T}, IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this Span<T> values, IComparer<T>? comparer = null) =>
-        Sortz.Sort(values, comparer);
+    public static void Sortz<T>(this Span<T> values, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(values, comparer);
 
     /// <inheritdoc cref="Sortz.Sort{T}(Memory{T}, IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this Memory<T> memory, IComparer<T>? comparer = null) =>
-        Sortz.Sort(memory, comparer);
+    public static void Sortz<T>(this Memory<T> memory, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(memory, comparer);
 
     /// <inheritdoc cref="Sortz.Sort{T}(ArraySegment{T}, IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this ArraySegment<T> segment, IComparer<T>? comparer = null) =>
-        Sortz.Sort(segment, comparer);
+    public static void Sortz<T>(this ArraySegment<T> segment, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(segment, comparer);
 
     /// <inheritdoc cref="Sortz.Sort{T}(IMemoryOwner{T}, IComparer{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Sort<T>(this IMemoryOwner<T> owner, IComparer<T>? comparer = null) =>
-        Sortz.Sort(owner, comparer);
+    public static void Sortz<T>(this IMemoryOwner<T> owner, IComparer<T>? comparer = null) =>
+        global::Krynetic.Sortz.Sortz.Sort(owner, comparer);
 }
