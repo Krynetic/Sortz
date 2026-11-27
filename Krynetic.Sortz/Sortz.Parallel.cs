@@ -130,6 +130,13 @@ public static partial class Sortz
         return (ulong)(Unsafe.As<T, UInt128>(ref value) >> 64);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ParallelRadixBucket(ulong key, ulong minimum, int shift)
+    {
+        ulong relative = key >= minimum ? key - minimum : 0;
+        return (int)Math.Min(31UL, relative >> shift);
+    }
+
     private static void SortParallelRadixBuckets<T>(Span<T> values, int workers)
     {
         const int buckets = 32;
@@ -140,47 +147,33 @@ public static partial class Sortz
         T[]? target = null;
         int[] counts = new int[workers * stride];
         int[] offsets = new int[buckets + 1];
-        ulong[] minima = new ulong[workers], maxima = new ulong[workers];
         try
         {
-            values.CopyTo(source.AsSpan(0, length));
-            // Determine the actual varying high bits in parallel, rather than
-            // assuming that the full numeric domain is represented.
-            Parallel.For(0, workers, SortParallelOptions, worker =>
-            {
-                int start = ParallelBoundary(length, worker, workers);
-                int end = ParallelBoundary(length, worker + 1, workers);
-                ulong min = ulong.MaxValue, max = 0;
-                for (int i = start; i < end; i++)
-                {
-                    ulong key = ParallelRadixKey(source[i]);
-                    min = Math.Min(min, key);
-                    max = Math.Max(max, key);
-                }
-                minima[worker] = min;
-                maxima[worker] = max;
-            });
+            // Sampling establishes a monotonic bucket mapping. Outliers are
+            // clamped into the edge buckets, so sampling cannot affect correctness.
             ulong minimum = ulong.MaxValue, maximum = 0;
-            for (int i = 0; i < workers; i++)
+            const int sampleCount = 128;
+            for (int i = 0; i < sampleCount; i++)
             {
-                minimum = Math.Min(minimum, minima[i]);
-                maximum = Math.Max(maximum, maxima[i]);
+                ulong key = ParallelRadixKey(values[ParallelBoundary(length, i, sampleCount)]);
+                minimum = Math.Min(minimum, key);
+                maximum = Math.Max(maximum, key);
             }
             ulong range = maximum - minimum;
             if (range == 0)
             {
-                // In particular, 128-bit keys may differ only in their low word.
                 SortParallelRuns(values, Comparer<T>.Default, workers);
                 return;
             }
             int shift = Math.Max(0, 64 - System.Numerics.BitOperations.LeadingZeroCount(range) - 5);
+            values.CopyTo(source.AsSpan(0, length));
             Parallel.For(0, workers, SortParallelOptions, worker =>
             {
                 int start = ParallelBoundary(length, worker, workers);
                 int end = ParallelBoundary(length, worker + 1, workers);
                 int row = worker * stride;
                 for (int i = start; i < end; i++)
-                    counts[row + (int)((ParallelRadixKey(source[i]) - minimum) >> shift)]++;
+                    counts[row + ParallelRadixBucket(ParallelRadixKey(source[i]), minimum, shift)]++;
             });
             int total = 0, largest = 0;
             for (int bucket = 0; bucket < buckets; bucket++)
@@ -198,6 +191,9 @@ public static partial class Sortz
             offsets[buckets] = total;
             if (largest > length / 2)
             {
+                // Release the distribution scratch before the merge fallback.
+                pool.Return(source);
+                source = null!;
                 SortParallelRuns(values, Comparer<T>.Default, workers);
                 return;
             }
@@ -211,7 +207,7 @@ public static partial class Sortz
                 for (int i = start; i < end; i++)
                 {
                     T value = source[i];
-                    int bucket = (int)((ParallelRadixKey(value) - minimum) >> shift);
+                    int bucket = ParallelRadixBucket(ParallelRadixKey(value), minimum, shift);
                     output[counts[row + bucket]++] = value;
                 }
             });
@@ -225,7 +221,7 @@ public static partial class Sortz
         finally
         {
             if (target is not null) pool.Return(target);
-            pool.Return(source);
+            if (source is not null) pool.Return(source);
         }
     }
 
