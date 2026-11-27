@@ -11,7 +11,7 @@ public static partial class Sortz
     // One parallel sort per process prevents nested and concurrent sorts from
     // multiplying worker counts. Other calls retain the existing fast paths.
     private static int parallelSortActive;
-    private static readonly int ParallelSortProcessorCount = Math.Min(16, Environment.ProcessorCount);
+    private static readonly int ParallelSortProcessorCount = Math.Min(8, Environment.ProcessorCount);
     private static readonly ParallelOptions SortParallelOptions = new()
     {
         TaskScheduler = TaskScheduler.Default,
@@ -51,25 +51,22 @@ public static partial class Sortz
             return false;
 
         comparer ??= Comparer<T>.Default;
+        // Reject ordered inputs before acquiring the global gate.
+        if (typeof(T) != typeof(bool) && !HasParallelDisorder<T>(values, comparer))
+            return false;
         if (Interlocked.CompareExchange(ref parallelSortActive, 1, 0) != 0)
             return false;
 
         try
         {
-            // Ordered, reverse-ordered and sparse-disorder inputs are handled by
-            // the existing adaptive/SIMD paths instead of allocating scratch.
-            if (typeof(T) != typeof(bool) && !HasParallelDisorder<T>(values, comparer))
-                return false;
 
             int length = values.Length;
             int grain = GetParallelThreshold<T>() / 2;
             if (!typeof(T).IsValueType && typeof(T) != typeof(string))
-                grain = 512;
+                grain = 1024;
 
             int workers = 2;
-            int workerLimit = !typeof(T).IsValueType && typeof(T) != typeof(string)
-                ? ParallelSortProcessorCount : Math.Min(8, ParallelSortProcessorCount);
-            while (workers * 2 <= workerLimit && length / (workers * 2) >= grain)
+            while (workers * 2 <= ParallelSortProcessorCount && length / (workers * 2) >= grain)
                 workers *= 2;
 
             if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
@@ -152,8 +149,13 @@ public static partial class Sortz
         }
         finally
         {
-            if (second is not null) pool.Return(second, clearArray: clear);
-            pool.Return(first, clearArray: clear);
+            if (clear)
+            {
+                first.AsSpan(0, length).Clear();
+                if (second is not null) second.AsSpan(0, length).Clear();
+            }
+            if (second is not null) pool.Return(second);
+            pool.Return(first);
         }
     }
 
