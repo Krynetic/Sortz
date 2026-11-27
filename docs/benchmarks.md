@@ -158,12 +158,12 @@ Sortz wins 41/48 workloads overall, up from 40/48 matching workloads in the prev
 
 | Implementation | Zero reported allocation | Nonzero reported allocation |
 |---|---:|---:|
-| DefaultListSort | 24 | 24 |
-| SortzSort | 36 | 12 |
-| YamSort | 36 | 12 |
-| CeleritySorting | 36 | 12 |
+| DefaultListSort | 36 | 12 |
+| SortzSort | 48 | 0 |
+| YamSort | 48 | 0 |
+| CeleritySorting | 48 | 0 |
 | HPCsharp | 0 | 48 |
-| Anoprsst | 24 | 24 |
+| Anoprsst | 32 | 16 |
 | SortingNetworksMergeSort | 0 | 48 |
 
 A dash in the BenchmarkDotNet Allocated column is counted as zero reported managed allocation, not as proof of no scratch memory or allocation-free cold starts.
