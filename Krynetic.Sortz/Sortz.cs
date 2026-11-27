@@ -1490,6 +1490,16 @@ public static partial class Sortz
         {
             var magnitude = Vector512.Create(0x7fff_ffff_ffff_ffffUL);
             var infinity = Vector512.Create(0x7ff0_0000_0000_0000UL);
+            for (; i <= values.Length - 32; i += 32)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)i).AsUInt64();
+                var b = Vector512.LoadUnsafe(ref data, (nuint)(i + 8)).AsUInt64();
+                var c = Vector512.LoadUnsafe(ref data, (nuint)(i + 16)).AsUInt64();
+                var d = Vector512.LoadUnsafe(ref data, (nuint)(i + 24)).AsUInt64();
+                var maximum = Vector512.Max(Vector512.Max(a & magnitude, b & magnitude),
+                    Vector512.Max(c & magnitude, d & magnitude));
+                if (Vector512.GreaterThanAny(maximum, infinity)) return true;
+            }
             for (; i <= values.Length - 8; i += 8)
             {
                 var bits = Vector512.LoadUnsafe(ref data, (nuint)i).AsUInt64();
