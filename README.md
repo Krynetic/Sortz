@@ -11,6 +11,8 @@ ______    _                          _   _          ____             _          
 
 Ultra-high-performance, in-place sorting for .NET lists and spans. Sortz uses **hardware-accelerated** sorting networks, radix sorting and specialized primitive algorithms, with comparison-based fallbacks for other types and custom comparers.
 
+As used by **[Krynetic Database](https://krynetic.com/)** ([Docs](https://github.com/Krynetic/Database-Documentation), [Releases](https://github.com/Krynetic/Database-Releases/)), the database which not just stores, but also acts - where performance is **key**!
+
 ## Performance
 
 Sortz ranks **#1** overall by benchmark wins against the **.NET built-in**, [**YamSort**](https://www.nuget.org/packages/YamSort), [**Celerity.Sorting**](https://www.nuget.org/packages/Celerity.Sorting/), [**HPCsharp**](https://www.nuget.org/packages/HPCsharp), [**Anoprsst**](https://www.nuget.org/packages/Anoprsst) and [**SortingNetworks**](https://www.nuget.org/packages/SortingNetworks)  
