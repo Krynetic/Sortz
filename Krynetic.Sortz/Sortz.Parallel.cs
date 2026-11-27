@@ -146,6 +146,8 @@ public static partial class Sortz
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int CompareParallelKeys<T>(T a, T b, IComparer<T> comparer)
     {
+        if (typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal))
+            return string.CompareOrdinal(Unsafe.As<T, string?>(ref a), Unsafe.As<T, string?>(ref b));
         if (typeof(T) == typeof(int))
             return Unsafe.As<T, int>(ref a).CompareTo(Unsafe.As<T, int>(ref b));
         if (typeof(T) == typeof(long))
@@ -172,6 +174,23 @@ public static partial class Sortz
         {
             source.AsSpan(outputStart, outputEnd - outputStart)
                 .CopyTo(target.AsSpan(outputStart));
+            return;
+        }
+
+        // Reverse-disjoint runs need only two bulk copies, not a merge.
+        if (comparer.Compare(Unsafe.Add(ref input, end - 1),
+            Unsafe.Add(ref input, start)) < 0)
+        {
+            int rightLength = end - middle;
+            int offset = outputStart - start;
+            int count = outputEnd - outputStart;
+            int rightCount = Math.Min(count, Math.Max(0, rightLength - offset));
+            if (rightCount != 0)
+                source.AsSpan(middle + offset, rightCount)
+                    .CopyTo(target.AsSpan(outputStart));
+            if (rightCount != count)
+                source.AsSpan(start + Math.Max(0, offset - rightLength), count - rightCount)
+                    .CopyTo(target.AsSpan(outputStart + rightCount));
             return;
         }
 
