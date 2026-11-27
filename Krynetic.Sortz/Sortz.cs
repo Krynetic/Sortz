@@ -29,21 +29,13 @@ public static partial class Sortz
     /// If <see langword="null"/>, <see cref="Comparer{T}.Default"/> is used.
     /// </param>
     /// <remarks>
-    /// Large disordered inputs
-    /// may be sorted concurrently when using the default or ordinal string comparer. Their comparison
-    /// implementation must support concurrent calls. Other custom comparers remain sequential.
+    /// Large disordered non-string reference-type inputs implementing <see cref="IComparable{T}"/>
+    /// may be sorted concurrently when using the default comparer. Their comparison
+    /// implementation must support concurrent calls. Custom comparers remain sequential.
     /// </remarks>
     public static void Sort<T>(Span<T> values, IComparer<T>? comparer = null)
     {
         if (values.Length < 2)
-            return;
-
-        // Keep small, ordered and low-cost workloads on the existing SIMD paths.
-        if (values.Length >= 4096 &&
-            (comparer is null || ReferenceEquals(comparer, Comparer<T>.Default) ||
-             (typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal))) &&
-            values.Length >= ParallelThreshold<T>() &&
-            TrySortParallelReference(values, comparer ?? Comparer<T>.Default))
             return;
 
         if (typeof(T) == typeof(int) &&
@@ -98,6 +90,10 @@ public static partial class Sortz
             int depth = 2 * (BitOperations.Log2((uint)values.Length) + 1);
             if (ReferenceTraits<T>.Comparable)
             {
+                if (values.Length >= 8192 && typeof(T) != typeof(string) &&
+                    TrySortParallelReference(values, comparer))
+                    return;
+
                 int first = 0;
                 ref T data = ref MemoryMarshal.GetReference(values);
                 for (int i = 0; i < values.Length; i++)
@@ -119,19 +115,6 @@ public static partial class Sortz
         }
 
         IntroSort(values, comparer, 2 * (BitOperations.Log2((uint)values.Length) + 1));
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int ParallelThreshold<T>()
-    {
-        if (typeof(T) == typeof(string)) return 4096;
-        if (!typeof(T).IsValueType) return 4096;
-        if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) ||
-            typeof(T) == typeof(sbyte)) return 262144;
-        if (typeof(T).IsPrimitive || typeof(T) == typeof(Half) ||
-            typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128))
-            return 32768;
-        return 16384;
     }
 
     private static class ReferenceTraits<T>
