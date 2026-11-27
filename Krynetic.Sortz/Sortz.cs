@@ -29,17 +29,13 @@ public static partial class Sortz
     /// If <see langword="null"/>, <see cref="Comparer{T}.Default"/> is used.
     /// </param>
     /// <remarks>
-    /// Large disordered inputs may be sorted on multiple threads when using the default
-    /// comparer or ordinal string comparison. Default comparison implementations must
-    /// support concurrent comparisons. Other custom comparers are called sequentially.
+    /// Large disordered non-string reference-type inputs implementing <see cref="IComparable{T}"/>
+    /// may be sorted concurrently when using the default comparer. Their comparison
+    /// implementation must support concurrent calls. Custom comparers remain sequential.
     /// </remarks>
     public static void Sort<T>(Span<T> values, IComparer<T>? comparer = null)
     {
         if (values.Length < 2)
-            return;
-
-        if (values.Length >= 8192 && values.Length >= GetParallelThreshold<T>() &&
-            TrySortParallel(values, comparer))
             return;
 
         if (typeof(T) == typeof(int) &&
@@ -94,6 +90,10 @@ public static partial class Sortz
             int depth = 2 * (BitOperations.Log2((uint)values.Length) + 1);
             if (ReferenceTraits<T>.Comparable)
             {
+                if (values.Length >= 8192 && typeof(T) != typeof(string) &&
+                    TrySortParallelReference(values, comparer))
+                    return;
+
                 int first = 0;
                 ref T data = ref MemoryMarshal.GetReference(values);
                 for (int i = 0; i < values.Length; i++)

@@ -37,13 +37,6 @@ public static partial class Sortz
 
     private static void SortBoolean(Span<bool> values)
     {
-        int count = CountFalse(values);
-        values[..count].Clear();
-        values[count..].Fill(true);
-    }
-
-    private static int CountFalse(Span<bool> values)
-    {
         Span<byte> bytes = MemoryMarshal.AsBytes(values);
         int count = 0, i = 0;
         ref byte data = ref MemoryMarshal.GetReference(bytes);
@@ -67,7 +60,8 @@ public static partial class Sortz
         }
         for (; i < bytes.Length; i++)
             count += Unsafe.Add(ref data, i) == 0 ? 1 : 0;
-        return count;
+        values[..count].Clear();
+        values[count..].Fill(true);
     }
 
     private static void SortByte(Span<byte> values)

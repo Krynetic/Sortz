@@ -18,64 +18,24 @@ public static partial class Sortz
         MaxDegreeOfParallelism = Math.Max(1, ParallelSortProcessorCount)
     };
 
-    // Initial crossover estimates from the existing 10K random-input timings.
-    // Small-domain counters and SIMD/radix paths need substantially more work
-    // before scheduling and copying can be amortized.
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetParallelThreshold<T>()
-    {
-        if (typeof(T) == typeof(bool)) return 4 * 1024 * 1024;
-        if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte)) return 256 * 1024;
-        if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort) ||
-            typeof(T) == typeof(char) || typeof(T) == typeof(Half)) return 128 * 1024;
-        if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
-            typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
-            typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
-            typeof(T) == typeof(float) || typeof(T) == typeof(double) ||
-            typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return 64 * 1024;
-        if (typeof(T) == typeof(decimal)) return 64 * 1024;
-        if (typeof(T) == typeof(string)) return 128 * 1024;
-        if (!typeof(T).IsValueType) return 8192;
-        return 16 * 1024;
-    }
-
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static bool TrySortParallel<T>(Span<T> values, IComparer<T>? comparer)
+    private static bool TrySortParallelReference<T>(Span<T> values, IComparer<T> comparer)
     {
-        if (ParallelSortProcessorCount < 2 || Volatile.Read(ref parallelSortActive) != 0)
+        if (ParallelSortProcessorCount < 2 || Volatile.Read(ref parallelSortActive) != 0 ||
+            !HasParallelDisorder<T>(values, comparer))
             return false;
 
-        bool ordinal = typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal);
-        // Do not call a caller-supplied, possibly stateful comparer concurrently.
-        if (!ordinal && comparer is not null && !ReferenceEquals(comparer, Comparer<T>.Default))
-            return false;
-
-        comparer ??= Comparer<T>.Default;
-        // Reject ordered inputs before acquiring the global gate.
-        if (typeof(T) != typeof(bool) && !HasParallelDisorder<T>(values, comparer))
-            return false;
         if (Interlocked.CompareExchange(ref parallelSortActive, 1, 0) != 0)
             return false;
 
         try
         {
-
-            int length = values.Length;
-            int grain = GetParallelThreshold<T>() / 2;
-            if (!typeof(T).IsValueType && typeof(T) != typeof(string))
-                grain = 1024;
-
             int workers = 2;
-            while (workers * 2 <= ParallelSortProcessorCount && length / (workers * 2) >= grain)
+            while (workers * 2 <= ParallelSortProcessorCount &&
+                   values.Length / (workers * 2) >= 1024)
                 workers *= 2;
 
-            if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
-                SortParallelSmallDomain(values, workers);
-            else if (IsParallelRadixInteger<T>())
-                SortParallelRadixBuckets(values, workers);
-            else
-                SortParallelRuns(values, comparer, workers);
-
+            SortParallelRuns(values, comparer, workers);
             return true;
         }
         finally
@@ -106,124 +66,6 @@ public static partial class Sortz
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int ParallelBoundary(int length, int index, int parts) =>
         (int)((long)length * index / parts);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsParallelRadixInteger<T>() =>
-        typeof(T) == typeof(short) || typeof(T) == typeof(ushort) || typeof(T) == typeof(char) ||
-        typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
-        typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
-        typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
-        typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong ParallelRadixKey<T>(T value)
-    {
-        if (typeof(T) == typeof(short)) return unchecked((ushort)(Unsafe.As<T, short>(ref value) ^ short.MinValue));
-        if (typeof(T) == typeof(ushort) || typeof(T) == typeof(char)) return Unsafe.As<T, ushort>(ref value);
-        if (typeof(T) == typeof(int)) return unchecked((uint)(Unsafe.As<T, int>(ref value) ^ int.MinValue));
-        if (typeof(T) == typeof(uint)) return Unsafe.As<T, uint>(ref value);
-        if (typeof(T) == typeof(long)) return unchecked((ulong)(Unsafe.As<T, long>(ref value) ^ long.MinValue));
-        if (typeof(T) == typeof(ulong)) return Unsafe.As<T, ulong>(ref value);
-        if (typeof(T) == typeof(nint)) return unchecked((nuint)(Unsafe.As<T, nint>(ref value) ^ nint.MinValue));
-        if (typeof(T) == typeof(nuint)) return Unsafe.As<T, nuint>(ref value);
-        if (typeof(T) == typeof(Int128)) return (ulong)(unchecked((UInt128)(Unsafe.As<T, Int128>(ref value) ^ Int128.MinValue)) >> 64);
-        return (ulong)(Unsafe.As<T, UInt128>(ref value) >> 64);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int ParallelRadixBucket(ulong key, ulong minimum, int shift)
-    {
-        ulong relative = key >= minimum ? key - minimum : 0;
-        return (int)Math.Min(31UL, relative >> shift);
-    }
-
-    private static void SortParallelRadixBuckets<T>(Span<T> values, int workers)
-    {
-        const int buckets = 32;
-        const int stride = 64;
-        int length = values.Length;
-        var pool = ArrayPool<T>.Shared;
-        T[] source = pool.Rent(length);
-        T[]? target = null;
-        int[] counts = new int[workers * stride];
-        int[] offsets = new int[buckets + 1];
-        try
-        {
-            // Sampling establishes a monotonic bucket mapping. Outliers are
-            // clamped into the edge buckets, so sampling cannot affect correctness.
-            ulong minimum = ulong.MaxValue, maximum = 0;
-            const int sampleCount = 128;
-            for (int i = 0; i < sampleCount; i++)
-            {
-                ulong key = ParallelRadixKey(values[ParallelBoundary(length, i, sampleCount)]);
-                minimum = Math.Min(minimum, key);
-                maximum = Math.Max(maximum, key);
-            }
-            ulong range = maximum - minimum;
-            if (range == 0)
-            {
-                SortParallelRuns(values, Comparer<T>.Default, workers);
-                return;
-            }
-            int shift = Math.Max(0, 64 - System.Numerics.BitOperations.LeadingZeroCount(range) - 5);
-            values.CopyTo(source.AsSpan(0, length));
-            Parallel.For(0, workers, SortParallelOptions, worker =>
-            {
-                int start = ParallelBoundary(length, worker, workers);
-                int end = ParallelBoundary(length, worker + 1, workers);
-                int row = worker * stride;
-                for (int i = start; i < end; i++)
-                    counts[row + ParallelRadixBucket(ParallelRadixKey(source[i]), minimum, shift)]++;
-            });
-            int total = 0, largest = 0;
-            for (int bucket = 0; bucket < buckets; bucket++)
-            {
-                offsets[bucket] = total;
-                for (int worker = 0; worker < workers; worker++)
-                {
-                    int index = worker * stride + bucket;
-                    int count = counts[index];
-                    counts[index] = total;
-                    total += count;
-                }
-                largest = Math.Max(largest, total - offsets[bucket]);
-            }
-            offsets[buckets] = total;
-            if (largest > length / 2)
-            {
-                // Release the distribution scratch before the merge fallback.
-                pool.Return(source);
-                source = null!;
-                SortParallelRuns(values, Comparer<T>.Default, workers);
-                return;
-            }
-
-            T[] output = target = pool.Rent(length);
-            Parallel.For(0, workers, SortParallelOptions, worker =>
-            {
-                int start = ParallelBoundary(length, worker, workers);
-                int end = ParallelBoundary(length, worker + 1, workers);
-                int row = worker * stride;
-                for (int i = start; i < end; i++)
-                {
-                    T value = source[i];
-                    int bucket = ParallelRadixBucket(ParallelRadixKey(value), minimum, shift);
-                    output[counts[row + bucket]++] = value;
-                }
-            });
-            Parallel.For(0, buckets, SortParallelOptions, bucket =>
-            {
-                int start = offsets[bucket], count = offsets[bucket + 1] - start;
-                if (count > 1) Sort(output.AsSpan(start, count));
-            });
-            output.AsSpan(0, length).CopyTo(values);
-        }
-        finally
-        {
-            if (target is not null) pool.Return(target);
-            if (source is not null) pool.Return(source);
-        }
-    }
 
     private static void SortParallelRuns<T>(Span<T> values, IComparer<T> comparer, int workers)
     {
@@ -317,22 +159,12 @@ public static partial class Sortz
         int rank = outputStart - start;
         int leftCount = MergeParallelRank(ref input, start, middle, end, rank, comparer);
         int left = start + leftCount, right = middle + rank - leftCount;
-        int finalRank = outputEnd - start;
-        int finalLeft = MergeParallelRank(ref input, start, middle, end, finalRank, comparer);
-        int leftEnd = start + finalLeft, rightEnd = middle + finalRank - finalLeft;
         int write = outputStart;
-        while (left < leftEnd && right < rightEnd)
+        while (write < outputEnd && left < middle && right < end)
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
-            if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-            {
-                bool takeLeft = comparer.Compare(a, b) <= 0;
-                Unsafe.Add(ref output, write++) = takeLeft ? a : b;
-                left += takeLeft ? 1 : 0;
-                right += takeLeft ? 0 : 1;
-            }
-            else if (comparer.Compare(a, b) <= 0)
+            if (comparer.Compare(a, b) <= 0)
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
@@ -347,92 +179,7 @@ public static partial class Sortz
         // CopyTo uses the runtime's vectorized memmove and GC write barriers.
         int remaining = outputEnd - write;
         if (remaining != 0)
-            source.AsSpan(left < leftEnd ? left : right, remaining)
+            source.AsSpan(left < middle ? left : right, remaining)
                 .CopyTo(target.AsSpan(write));
-    }
-
-    private static void SortParallelSmallDomain<T>(Span<T> values, int workers)
-    {
-        int length = values.Length;
-        T[] copy = ArrayPool<T>.Shared.Rent(length);
-        try
-        {
-            values.CopyTo(copy.AsSpan(0, length));
-            if (typeof(T) == typeof(bool))
-            {
-                const int counterStride = 16;
-                int[] totals = ArrayPool<int>.Shared.Rent(workers * counterStride);
-                try
-                {
-                    Parallel.For(0, workers, SortParallelOptions, worker =>
-                    {
-                        int start = ParallelBoundary(length, worker, workers);
-                        int end = ParallelBoundary(length, worker + 1, workers);
-                        totals[worker * counterStride] = CountFalse(Reinterpret<T, bool>(copy.AsSpan(start, end - start)));
-                    });
-                    int falseCount = 0;
-                    for (int i = 0; i < workers; i++) falseCount += totals[i * counterStride];
-                    var flags = Reinterpret<T, bool>(values);
-                    flags[..falseCount].Clear();
-                    flags[falseCount..].Fill(true);
-                }
-                finally { ArrayPool<int>.Shared.Return(totals); }
-                return;
-            }
-
-            const int stride = 1024;
-            int[] histograms = ArrayPool<int>.Shared.Rent(workers * stride);
-            int sign = typeof(T) == typeof(sbyte) ? 128 : 0;
-            try
-            {
-                Parallel.For(0, workers, SortParallelOptions, worker =>
-                {
-                    int start = ParallelBoundary(length, worker, workers);
-                    int end = ParallelBoundary(length, worker + 1, workers);
-                    CountParallelBytes(Reinterpret<T, byte>(copy.AsSpan(start, end - start)),
-                        histograms.AsSpan(worker * stride, stride), sign);
-                });
-
-                var bytes = Reinterpret<T, byte>(values);
-                int offset = 0;
-                for (int key = 0; key < 256; key++)
-                {
-                    int count = 0;
-                    for (int worker = 0; worker < workers; worker++)
-                    {
-                        int index = worker * stride + key;
-                        count += histograms[index] + histograms[index + 256] +
-                            histograms[index + 512] + histograms[index + 768];
-                    }
-                    bytes.Slice(offset, count).Fill((byte)(key ^ sign));
-                    offset += count;
-                }
-            }
-            finally { ArrayPool<int>.Shared.Return(histograms); }
-        }
-        finally { ArrayPool<T>.Shared.Return(copy); }
-    }
-
-    private static void CountParallelBytes(Span<byte> values, Span<int> counts, int sign)
-    {
-        counts.Clear();
-        ref int h = ref MemoryMarshal.GetReference(counts);
-        ref byte data = ref MemoryMarshal.GetReference(values);
-        ulong mask = 0x0101010101010101UL * (uint)sign;
-        int i = 0;
-        for (; i <= values.Length - 8; i += 8)
-        {
-            ulong word = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref data, i)) ^ mask;
-            Unsafe.Add(ref h, (byte)word)++;
-            Unsafe.Add(ref h, 256 + (byte)(word >> 8))++;
-            Unsafe.Add(ref h, 512 + (byte)(word >> 16))++;
-            Unsafe.Add(ref h, 768 + (byte)(word >> 24))++;
-            Unsafe.Add(ref h, (byte)(word >> 32))++;
-            Unsafe.Add(ref h, 256 + (byte)(word >> 40))++;
-            Unsafe.Add(ref h, 512 + (byte)(word >> 48))++;
-            Unsafe.Add(ref h, 768 + (byte)(word >> 56))++;
-        }
-        for (; i < values.Length; i++)
-            Unsafe.Add(ref h, Unsafe.Add(ref data, i) ^ sign)++;
     }
 }
