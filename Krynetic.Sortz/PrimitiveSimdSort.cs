@@ -89,6 +89,120 @@ internal static class PrimitiveSimdSort
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortInt16_128(Span<ushort> values)
+    {
+        ref ushort data = ref MemoryMarshal.GetReference(values);
+        var sign = Vector512.Create((ushort)0x8000);
+        var v0 = SortVector(Vector512.LoadUnsafe(ref data, 0) ^ sign);
+        var v1 = SortVector(Vector512.LoadUnsafe(ref data, 32) ^ sign);
+        var v2 = SortVector(Vector512.LoadUnsafe(ref data, 64) ^ sign);
+        var v3 = SortVector(Vector512.LoadUnsafe(ref data, 96) ^ sign);
+        var r2_0 = Vector512.Shuffle(v1, Reverse);
+        var h2_0 = Vector512.Max(v0, r2_0);
+        v0 = Vector512.Min(v0, r2_0);
+        v1 = h2_0;
+        v0 = MergeVector(v0);
+        v1 = MergeVector(v1);
+        var r2_2 = Vector512.Shuffle(v3, Reverse);
+        var h2_2 = Vector512.Max(v2, r2_2);
+        v2 = Vector512.Min(v2, r2_2);
+        v3 = h2_2;
+        v2 = MergeVector(v2);
+        v3 = MergeVector(v3);
+        var r4_0 = Vector512.Shuffle(v3, Reverse);
+        var h4_0 = Vector512.Max(v0, r4_0);
+        v0 = Vector512.Min(v0, r4_0);
+        var r4_1 = Vector512.Shuffle(v2, Reverse);
+        var h4_1 = Vector512.Max(v1, r4_1);
+        v1 = Vector512.Min(v1, r4_1);
+        v2 = h4_0;
+        v3 = h4_1;
+        var t4_1_0 = Vector512.Max(v0, v1);
+        v0 = Vector512.Min(v0, v1);
+        v1 = t4_1_0;
+        var t4_1_2 = Vector512.Max(v2, v3);
+        v2 = Vector512.Min(v2, v3);
+        v3 = t4_1_2;
+        v0 = MergeVector(v0);
+        v1 = MergeVector(v1);
+        v2 = MergeVector(v2);
+        v3 = MergeVector(v3);
+        (v0 ^ sign).StoreUnsafe(ref data, 0);
+        (v1 ^ sign).StoreUnsafe(ref data, 32);
+        (v2 ^ sign).StoreUnsafe(ref data, 64);
+        (v3 ^ sign).StoreUnsafe(ref data, 96);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortByte32(Span<byte> values, byte sign)
+    {
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        var mask = Vector256.Create(sign);
+        var (keys, _) = Vector512.Widen(Vector512.Create(Vector256.LoadUnsafe(ref data) ^ mask, Vector256<byte>.Zero));
+        keys = SortVector(keys);
+        (Vector512.Narrow(keys, keys).GetLower() ^ mask).StoreUnsafe(ref data);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortByte64(Span<byte> values, byte sign)
+    {
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        var mask = Vector512.Create(sign);
+        var (v0, v1) = Vector512.Widen(Vector512.LoadUnsafe(ref data) ^ mask);
+        v0 = SortVector(v0);
+        v1 = SortVector(v1);
+        var reverse = Vector512.Shuffle(v1, Reverse);
+        var lower = MergeVector(Vector512.Min(v0, reverse));
+        var upper = MergeVector(Vector512.Max(v0, reverse));
+        (Vector512.Narrow(lower, upper) ^ mask).StoreUnsafe(ref data);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortByte128(Span<byte> values, byte sign)
+    {
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        var mask = Vector512.Create(sign);
+        var (v0, v1) = Vector512.Widen(Vector512.LoadUnsafe(ref data, 0) ^ mask);
+        var (v2, v3) = Vector512.Widen(Vector512.LoadUnsafe(ref data, 64) ^ mask);
+        v0 = SortVector(v0);
+        v1 = SortVector(v1);
+        v2 = SortVector(v2);
+        v3 = SortVector(v3);
+        var r2_0 = Vector512.Shuffle(v1, Reverse);
+        var h2_0 = Vector512.Max(v0, r2_0);
+        v0 = Vector512.Min(v0, r2_0);
+        v1 = h2_0;
+        v0 = MergeVector(v0);
+        v1 = MergeVector(v1);
+        var r2_2 = Vector512.Shuffle(v3, Reverse);
+        var h2_2 = Vector512.Max(v2, r2_2);
+        v2 = Vector512.Min(v2, r2_2);
+        v3 = h2_2;
+        v2 = MergeVector(v2);
+        v3 = MergeVector(v3);
+        var r4_0 = Vector512.Shuffle(v3, Reverse);
+        var h4_0 = Vector512.Max(v0, r4_0);
+        v0 = Vector512.Min(v0, r4_0);
+        var r4_1 = Vector512.Shuffle(v2, Reverse);
+        var h4_1 = Vector512.Max(v1, r4_1);
+        v1 = Vector512.Min(v1, r4_1);
+        v2 = h4_0;
+        v3 = h4_1;
+        var t4_1_0 = Vector512.Max(v0, v1);
+        v0 = Vector512.Min(v0, v1);
+        v1 = t4_1_0;
+        var t4_1_2 = Vector512.Max(v2, v3);
+        v2 = Vector512.Min(v2, v3);
+        v3 = t4_1_2;
+        v0 = MergeVector(v0);
+        v1 = MergeVector(v1);
+        v2 = MergeVector(v2);
+        v3 = MergeVector(v3);
+        (Vector512.Narrow(v0, v1) ^ mask).StoreUnsafe(ref data, 0);
+        (Vector512.Narrow(v2, v3) ^ mask).StoreUnsafe(ref data, 64);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void SortCore(Span<ushort> values)
     {
         ref ushort data = ref MemoryMarshal.GetReference(values);

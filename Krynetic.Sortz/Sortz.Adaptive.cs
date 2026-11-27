@@ -30,6 +30,23 @@ public static partial class Sortz
 
         if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
+            if (typeof(T) == typeof(int) && descending && length > Vector512<T>.Count)
+            {
+                int descendingWidth = Vector512<T>.Count;
+                for (; i <= length - descendingWidth; i += descendingWidth)
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > descendingWidth)
+                {
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - descendingWidth - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - descendingWidth)))) return false;
+                    i = length;
+                }
+                values.Reverse();
+                return true;
+            }
             int width = Vector512<T>.Count;
             // Check the final overlapping vector rather than a scalar tail.
             for (; i <= length - width; i += width)
@@ -262,35 +279,84 @@ public static partial class Sortz
             while (right >= 0)
             {
                 T key = rejected[right--];
-                int moved = 0;
-                while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                // The JIT folds these type checks for each value-type instantiation.
+                if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort) ||
+                    typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
+                    typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
+                    typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
+                    typeof(T) == typeof(float) || typeof(T) == typeof(double) ||
+                    typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128))
                 {
-                    Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
-                    moved++;
+                    if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                    {
+                        // Size-specific lookback: amortize one cache-line move
+                        // for narrow/wide keys, preserving the measured 32/64-bit path.
+                        int probe = Unsafe.SizeOf<T>() <= 2 ? 16 : Unsafe.SizeOf<T>() >= 16 ? 4 : 8;
+                        if (left >= probe - 1 && Unsafe.Add(ref data, left - probe + 1).CompareTo(key) > 0)
+                        {
+                            int hi = left - probe + 1;
+                            int step = probe;
+                            while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                            {
+                                hi = left - step;
+                                if (step > left / 2) { step = left + 1; break; }
+                                step <<= 1;
+                            }
+
+                            int lo = Math.Max(0, left - step + 1);
+                            while (lo < hi)
+                            {
+                                int mid = lo + ((hi - lo) >> 1);
+                                if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                                else hi = mid;
+                            }
+
+                            int count = left - lo + 1;
+                            values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
+                            output -= count;
+                            left = lo - 1;
+                        }
+                        else
+                        {
+                            do
+                            {
+                                Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                            } while (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0);
+                        }
+                    }
                 }
-
-                // Gallop across long runs, then move them with one memmove.
-                if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                else
                 {
-                    int hi = left + 1, step = 1;
-                    while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                    int moved = 0;
+                    while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                     {
-                        if (step > left / 2) { step = left + 1; break; }
-                        step <<= 1;
+                        Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                        moved++;
                     }
 
-                    int lo = Math.Max(0, left - step + 1);
-                    while (lo < hi)
+                    // Gallop across long runs, then move them with one memmove.
+                    if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                     {
-                        int mid = lo + ((hi - lo) >> 1);
-                        if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
-                        else hi = mid;
-                    }
+                        int hi = left + 1, step = 1;
+                        while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                        {
+                            if (step > left / 2) { step = left + 1; break; }
+                            step <<= 1;
+                        }
 
-                    int count = left - lo + 1;
-                    values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
-                    output -= count;
-                    left -= count;
+                        int lo = Math.Max(0, left - step + 1);
+                        while (lo < hi)
+                        {
+                            int mid = lo + ((hi - lo) >> 1);
+                            if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                            else hi = mid;
+                        }
+
+                        int count = left - lo + 1;
+                        values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
+                        output -= count;
+                        left -= count;
+                    }
                 }
                 Unsafe.Add(ref data, output--) = key;
             }
