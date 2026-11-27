@@ -25,9 +25,19 @@ public static partial class Sortz
     private static int GetParallelThreshold<T>()
     {
         if (typeof(T) == typeof(bool)) return 4 * 1024 * 1024;
-        if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte)) return 32 * 1024;
-        // Exercise the existing 10K benchmark for all comparison/radix types.
-        return 8192;
+        if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte)) return 256 * 1024;
+        if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort) ||
+            typeof(T) == typeof(char)) return 8192;
+        if (typeof(T) == typeof(Half)) return 128 * 1024;
+        if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
+            typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
+            typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
+            typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return 8192;
+        if (typeof(T) == typeof(float) || typeof(T) == typeof(double)) return 64 * 1024;
+        if (typeof(T) == typeof(decimal)) return 64 * 1024;
+        if (typeof(T) == typeof(string)) return 128 * 1024;
+        if (!typeof(T).IsValueType) return 8192;
+        return 16 * 1024;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -53,8 +63,6 @@ public static partial class Sortz
 
             int length = values.Length;
             int grain = GetParallelThreshold<T>() / 2;
-            if (typeof(T) == typeof(decimal) || typeof(T) == typeof(string))
-                grain = 2048;
             if (!typeof(T).IsValueType && typeof(T) != typeof(string))
                 grain = 1024;
 
@@ -64,8 +72,8 @@ public static partial class Sortz
 
             if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
                 SortParallelSmallDomain(values, workers);
-            else if (typeof(T).IsValueType && !RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-                SortParallelPartition(values, comparer, workers);
+            else if (IsParallelInteger<T>())
+                SortParallelIntegerBuckets(values);
             else
                 SortParallelRuns(values, comparer, workers);
 
@@ -100,69 +108,66 @@ public static partial class Sortz
     private static int ParallelBoundary(int length, int index, int parts) =>
         (int)((long)length * index / parts);
 
-    // Partition around a sampled median before sorting independent ranges.
-    // Avoids merging already sorted primitive runs and a second scratch buffer.
-    private static void SortParallelPartition<T>(Span<T> values, IComparer<T> comparer, int workers)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsParallelInteger<T>() =>
+        typeof(T) == typeof(short) || typeof(T) == typeof(ushort) || typeof(T) == typeof(char) ||
+        typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
+        typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
+        typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
+        typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static UInt128 ParallelIntegerKey<T>(T value)
+    {
+        if (typeof(T) == typeof(short)) return unchecked((ushort)(Unsafe.As<T, short>(ref value) ^ short.MinValue));
+        if (typeof(T) == typeof(ushort) || typeof(T) == typeof(char)) return Unsafe.As<T, ushort>(ref value);
+        if (typeof(T) == typeof(int)) return unchecked((uint)(Unsafe.As<T, int>(ref value) ^ int.MinValue));
+        if (typeof(T) == typeof(uint)) return Unsafe.As<T, uint>(ref value);
+        if (typeof(T) == typeof(long)) return unchecked((ulong)(Unsafe.As<T, long>(ref value) ^ long.MinValue));
+        if (typeof(T) == typeof(ulong)) return Unsafe.As<T, ulong>(ref value);
+        if (typeof(T) == typeof(nint)) return unchecked((nuint)(Unsafe.As<T, nint>(ref value) ^ nint.MinValue));
+        if (typeof(T) == typeof(nuint)) return Unsafe.As<T, nuint>(ref value);
+        if (typeof(T) == typeof(Int128)) return unchecked((UInt128)(Unsafe.As<T, Int128>(ref value) ^ Int128.MinValue));
+        return Unsafe.As<T, UInt128>(ref value);
+    }
+
+    private static void SortParallelIntegerBuckets<T>(Span<T> values)
     {
         int length = values.Length;
+        const int bucketCount = 64;
+        UInt128 min = UInt128.MaxValue, max = 0;
+        foreach (T value in values)
+        {
+            UInt128 key = ParallelIntegerKey(value);
+            if (key < min) min = key;
+            if (key > max) max = key;
+        }
+        UInt128 range = max - min;
+        if (range == 0) return;
+        ulong high = (ulong)(range >> 64);
+        int bits = high != 0 ? 128 - System.Numerics.BitOperations.LeadingZeroCount(high)
+            : 64 - System.Numerics.BitOperations.LeadingZeroCount((ulong)range);
+        int shift = Math.Max(0, bits - 6);
+        Span<int> counts = stackalloc int[bucketCount];
+        counts.Clear();
+        foreach (T value in values)
+            counts[(int)((ParallelIntegerKey(value) - min) >> shift)]++;
+        int[] offsets = new int[bucketCount + 1];
+        for (int i = 0; i < bucketCount; i++) offsets[i + 1] = offsets[i] + counts[i];
+        offsets.AsSpan(0, bucketCount).CopyTo(counts);
         T[] buffer = ArrayPool<T>.Shared.Rent(length);
         try
         {
-            values.CopyTo(buffer.AsSpan(0, length));
-            ParallelPartitionRange(buffer, 0, length, comparer, workers);
+            foreach (T value in values)
+                buffer[counts[(int)((ParallelIntegerKey(value) - min) >> shift)]++] = value;
+            Parallel.For(0, bucketCount, SortParallelOptions, bucket =>
+            {
+                int start = offsets[bucket], count = offsets[bucket + 1] - start;
+                if (count > 1) Sort(buffer.AsSpan(start, count));
+            });
             buffer.AsSpan(0, length).CopyTo(values);
         }
         finally { ArrayPool<T>.Shared.Return(buffer); }
-    }
-
-    private static void ParallelPartitionRange<T>(T[] buffer, int start, int length,
-        IComparer<T> comparer, int workers)
-    {
-        if (workers <= 1 || length < 2048)
-        {
-            Sort(buffer.AsSpan(start, length), comparer);
-            return;
-        }
-
-        // Median of nine evenly spaced samples limits imbalanced random partitions.
-        Span<T> sample = new T[9];
-        int step = (length - 1) / 8;
-        for (int i = 0; i < 9; i++) sample[i] = buffer[start + i * step];
-        for (int i = 1; i < 9; i++)
-        {
-            T key = sample[i];
-            int j = i;
-            while (j > 0 && comparer.Compare(key, sample[j - 1]) < 0)
-            {
-                sample[j] = sample[j - 1];
-                j--;
-            }
-            sample[j] = key;
-        }
-
-        T pivot = sample[4];
-        int left = start, right = start + length - 1;
-        ref T data = ref MemoryMarshal.GetArrayDataReference(buffer);
-        while (left <= right)
-        {
-            while (left <= right && comparer.Compare(Unsafe.Add(ref data, left), pivot) < 0) left++;
-            while (left <= right && comparer.Compare(Unsafe.Add(ref data, right), pivot) > 0) right--;
-            if (left > right) break;
-            ref T a = ref Unsafe.Add(ref data, left++);
-            ref T b = ref Unsafe.Add(ref data, right--);
-            (a, b) = (b, a);
-        }
-
-        int lower = left - start;
-        if (lower <= 0 || lower >= length)
-        {
-            Sort(buffer.AsSpan(start, length), comparer);
-            return;
-        }
-        int upper = length - lower;
-        Parallel.Invoke(SortParallelOptions,
-            () => ParallelPartitionRange(buffer, start, lower, comparer, workers / 2),
-            () => ParallelPartitionRange(buffer, left, upper, comparer, workers / 2));
     }
 
     private static void SortParallelRuns<T>(Span<T> values, IComparer<T> comparer, int workers)
