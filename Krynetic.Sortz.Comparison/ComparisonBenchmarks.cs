@@ -30,7 +30,7 @@ public sealed class ComparisonConfig : ManualConfig
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
             .WithWarmupCount(5)
-            .WithIterationCount(5)
+            .WithIterationCount(8)
             .WithLaunchCount(1)
             .WithInvocationCount(InvocationCount)
             .WithUnrollFactor(InvocationCount));
