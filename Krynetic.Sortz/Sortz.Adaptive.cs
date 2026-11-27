@@ -28,100 +28,63 @@ public static partial class Sortz
             if (descending ? c < 0 : c > 0) return false;
         }
 
-        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+        // Restrict the measured descending-path improvement to Int32.
+        if (typeof(T) == typeof(int) && descending && Vector512.IsHardwareAccelerated)
         {
             int width = Vector512<T>.Count;
-            if (descending)
+            for (; i <= length - width; i += width)
+                if (!Vector512.GreaterThanOrEqualAll(
+                    Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
+                    Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
+            if (i < length && length > width)
             {
-                for (; i <= length - width; i += width)
-                    if (!Vector512.GreaterThanOrEqualAll(
-                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector512.GreaterThanOrEqualAll(
-                        Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
+                if (!Vector512.GreaterThanOrEqualAll(
+                    Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                    Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                i = length;
             }
-            else
+        }
+        else if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
+        {
+            int width = Vector512<T>.Count;
+            // Check the final overlapping vector rather than a scalar tail.
+            for (; i <= length - width; i += width)
             {
-                for (; i <= length - width; i += width)
-                    if (!Vector512.LessThanOrEqualAll(
-                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector512.LessThanOrEqualAll(
-                        Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
+                var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector512.LoadUnsafe(ref data, (nuint)i);
+                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
+                    Vector512.LessThanOrEqualAll(a, b))) return false;
+            }
+            if (i < length && length > width)
+            {
+                var a = Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1));
+                var b = Vector512.LoadUnsafe(ref data, (nuint)(length - width));
+                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
+                    Vector512.LessThanOrEqualAll(a, b))) return false;
+                i = length;
             }
         }
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
         {
             int width = Vector256<T>.Count;
-            if (descending)
+            for (; i <= length - width; i += width)
             {
-                for (; i <= length - width; i += width)
-                    if (!Vector256.GreaterThanOrEqualAll(
-                        Vector256.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector256.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector256.GreaterThanOrEqualAll(
-                        Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector256.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
-            }
-            else
-            {
-                for (; i <= length - width; i += width)
-                    if (!Vector256.LessThanOrEqualAll(
-                        Vector256.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector256.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector256.LessThanOrEqualAll(
-                        Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector256.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
+                var a = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector256.LoadUnsafe(ref data, (nuint)i);
+                if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
+                    Vector256.LessThanOrEqualAll(a, b))) return false;
             }
         }
+
         else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
         {
             int width = Vector128<T>.Count;
-            if (descending)
+            for (; i <= length - width; i += width)
             {
-                for (; i <= length - width; i += width)
-                    if (!Vector128.GreaterThanOrEqualAll(
-                        Vector128.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector128.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector128.GreaterThanOrEqualAll(
-                        Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector128.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
-            }
-            else
-            {
-                for (; i <= length - width; i += width)
-                    if (!Vector128.LessThanOrEqualAll(
-                        Vector128.LoadUnsafe(ref data, (nuint)(i - 1)),
-                        Vector128.LoadUnsafe(ref data, (nuint)i))) return false;
-                if (i < length && length > width)
-                {
-                    if (!Vector128.LessThanOrEqualAll(
-                        Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                        Vector128.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                    i = length;
-                }
+                var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
+                var b = Vector128.LoadUnsafe(ref data, (nuint)i);
+                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
+                    Vector128.LessThanOrEqualAll(a, b))) return false;
             }
         }
 
@@ -315,17 +278,63 @@ public static partial class Sortz
             while (right >= 0)
             {
                 T key = rejected[right--];
-                if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                // The JIT folds these type checks for each value-type instantiation.
+                if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
+                    typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
+                    typeof(T) == typeof(float) || typeof(T) == typeof(double))
                 {
-                    // The kept prefix is monotonic. One comparison eight
-                    // positions back proves the entire suffix is greater.
-                    if (left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                    if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                     {
-                        int hi = left - 7;
-                        int step = 8;
+                        // The kept prefix is monotonic. One comparison eight
+                        // positions back proves the entire suffix is greater.
+                        if (left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                        {
+                            int hi = left - 7;
+                            int step = 8;
+                            while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                            {
+                                hi = left - step;
+                                if (step > left / 2) { step = left + 1; break; }
+                                step <<= 1;
+                            }
+
+                            int lo = Math.Max(0, left - step + 1);
+                            while (lo < hi)
+                            {
+                                int mid = lo + ((hi - lo) >> 1);
+                                if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                                else hi = mid;
+                            }
+
+                            int count = left - lo + 1;
+                            values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
+                            output -= count;
+                            left = lo - 1;
+                        }
+                        else
+                        {
+                            do
+                            {
+                                Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                            } while (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0);
+                        }
+                    }
+                }
+                else
+                {
+                    int moved = 0;
+                    while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                    {
+                        Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                        moved++;
+                    }
+
+                    // Gallop across long runs, then move them with one memmove.
+                    if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                    {
+                        int hi = left + 1, step = 1;
                         while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
                         {
-                            hi = left - step;
                             if (step > left / 2) { step = left + 1; break; }
                             step <<= 1;
                         }
@@ -341,14 +350,7 @@ public static partial class Sortz
                         int count = left - lo + 1;
                         values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
                         output -= count;
-                        left = lo - 1;
-                    }
-                    else
-                    {
-                        do
-                        {
-                            Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
-                        } while (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0);
+                        left -= count;
                     }
                 }
                 Unsafe.Add(ref data, output--) = key;
