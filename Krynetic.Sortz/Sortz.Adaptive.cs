@@ -280,18 +280,22 @@ public static partial class Sortz
             {
                 T key = rejected[right--];
                 // The JIT folds these type checks for each value-type instantiation.
-                if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
+                if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort) ||
+                    typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
                     typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
-                    typeof(T) == typeof(float) || typeof(T) == typeof(double))
+                    typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
+                    typeof(T) == typeof(float) || typeof(T) == typeof(double) ||
+                    typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128))
                 {
                     if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                     {
-                        // The kept prefix is monotonic. One comparison eight
-                        // positions back proves the entire suffix is greater.
-                        if (left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
+                        // Size-specific lookback: amortize one cache-line move
+                        // for narrow/wide keys, preserving the measured 32/64-bit path.
+                        int probe = Unsafe.SizeOf<T>() <= 2 ? 16 : Unsafe.SizeOf<T>() >= 16 ? 4 : 8;
+                        if (left >= probe - 1 && Unsafe.Add(ref data, left - probe + 1).CompareTo(key) > 0)
                         {
-                            int hi = left - 7;
-                            int step = 8;
+                            int hi = left - probe + 1;
+                            int step = probe;
                             while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
                             {
                                 hi = left - step;
