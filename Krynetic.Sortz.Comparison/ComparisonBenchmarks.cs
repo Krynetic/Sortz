@@ -18,8 +18,8 @@ public enum InputPattern
 
 public sealed class ComparisonConfig : ManualConfig
 {
-    public const bool IncludeCelerityAndHpc = false;
-    public const int BatchSize = 8;
+    public const bool IncludeCelerityAndHpc = true;
+    public const int BatchSize = 16;
     public const int InvocationCount = 16;
 
     public ComparisonConfig()
