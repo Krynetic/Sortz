@@ -28,9 +28,18 @@ public static partial class Sortz
     /// The comparer used to determine the order of elements.
     /// If <see langword="null"/>, <see cref="Comparer{T}.Default"/> is used.
     /// </param>
+    /// <remarks>
+    /// Large disordered inputs may be sorted on multiple threads when using the default
+    /// comparer or ordinal string comparison. Default comparison implementations must
+    /// support concurrent comparisons. Other custom comparers are called sequentially.
+    /// </remarks>
     public static void Sort<T>(Span<T> values, IComparer<T>? comparer = null)
     {
         if (values.Length < 2)
+            return;
+
+        if (values.Length >= 8192 && values.Length >= GetParallelThreshold<T>() &&
+            TrySortParallel(values, comparer))
             return;
 
         if (typeof(T) == typeof(int) &&
