@@ -89,6 +89,30 @@ internal static class PrimitiveSimdSort
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortByte32(Span<byte> values, byte sign)
+    {
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        var mask = Vector256.Create(sign);
+        var (keys, _) = Vector512.Widen(Vector512.Create(Vector256.LoadUnsafe(ref data) ^ mask, Vector256<byte>.Zero));
+        keys = SortVector(keys);
+        (Vector512.Narrow(keys, keys).GetLower() ^ mask).StoreUnsafe(ref data);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static void SortByte64(Span<byte> values, byte sign)
+    {
+        ref byte data = ref MemoryMarshal.GetReference(values);
+        var mask = Vector512.Create(sign);
+        var (v0, v1) = Vector512.Widen(Vector512.LoadUnsafe(ref data) ^ mask);
+        v0 = SortVector(v0);
+        v1 = SortVector(v1);
+        var reverse = Vector512.Shuffle(v1, Reverse);
+        var lower = MergeVector(Vector512.Min(v0, reverse));
+        var upper = MergeVector(Vector512.Max(v0, reverse));
+        (Vector512.Narrow(lower, upper) ^ mask).StoreUnsafe(ref data);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static void SortByte128(Span<byte> values, byte sign)
     {
         ref byte data = ref MemoryMarshal.GetReference(values);
