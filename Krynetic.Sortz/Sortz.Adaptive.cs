@@ -315,35 +315,41 @@ public static partial class Sortz
             while (right >= 0)
             {
                 T key = rejected[right--];
-                int moved = 0;
-                while (left >= 0 && moved < 8 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
+                if (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
                 {
-                    Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
-                    moved++;
-                }
-
-                // Gallop across long runs, then move them with one memmove.
-                if (moved == 8 && left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0)
-                {
-                    int hi = left + 1, step = 1;
-                    while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                    // The kept prefix is monotonic. One comparison eight
+                    // positions back proves the entire suffix is greater.
+                    if (left >= 7 && Unsafe.Add(ref data, left - 7).CompareTo(key) > 0)
                     {
-                        if (step > left / 2) { step = left + 1; break; }
-                        step <<= 1;
-                    }
+                        int hi = left - 7;
+                        int step = 8;
+                        while (step <= left && Unsafe.Add(ref data, left - step).CompareTo(key) > 0)
+                        {
+                            hi = left - step;
+                            if (step > left / 2) { step = left + 1; break; }
+                            step <<= 1;
+                        }
 
-                    int lo = Math.Max(0, left - step + 1);
-                    while (lo < hi)
+                        int lo = Math.Max(0, left - step + 1);
+                        while (lo < hi)
+                        {
+                            int mid = lo + ((hi - lo) >> 1);
+                            if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
+                            else hi = mid;
+                        }
+
+                        int count = left - lo + 1;
+                        values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
+                        output -= count;
+                        left = lo - 1;
+                    }
+                    else
                     {
-                        int mid = lo + ((hi - lo) >> 1);
-                        if (Unsafe.Add(ref data, mid).CompareTo(key) <= 0) lo = mid + 1;
-                        else hi = mid;
+                        do
+                        {
+                            Unsafe.Add(ref data, output--) = Unsafe.Add(ref data, left--);
+                        } while (left >= 0 && Unsafe.Add(ref data, left).CompareTo(key) > 0);
                     }
-
-                    int count = left - lo + 1;
-                    values.Slice(lo, count).CopyTo(values.Slice(output - count + 1, count));
-                    output -= count;
-                    left -= count;
                 }
                 Unsafe.Add(ref data, output--) = key;
             }
