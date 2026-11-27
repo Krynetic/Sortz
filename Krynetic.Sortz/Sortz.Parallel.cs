@@ -33,8 +33,9 @@ public static partial class Sortz
             typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
             typeof(T) == typeof(float) || typeof(T) == typeof(double) ||
             typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return 64 * 1024;
-        if (typeof(T) == typeof(decimal) || typeof(T) == typeof(string) ||
-            !typeof(T).IsValueType) return 8192;
+        if (typeof(T) == typeof(decimal)) return 64 * 1024;
+        if (typeof(T) == typeof(string)) return 128 * 1024;
+        if (!typeof(T).IsValueType) return 8192;
         return 16 * 1024;
     }
 
@@ -62,8 +63,8 @@ public static partial class Sortz
 
             int length = values.Length;
             int grain = GetParallelThreshold<T>() / 2;
-            if (typeof(T) == typeof(string) || !typeof(T).IsValueType)
-                grain = ordinal ? 4096 : 2048;
+            if (!typeof(T).IsValueType && typeof(T) != typeof(string))
+                grain = 1024;
 
             int workers = 2;
             while (workers * 2 <= ParallelSortProcessorCount && length / (workers * 2) >= grain)
