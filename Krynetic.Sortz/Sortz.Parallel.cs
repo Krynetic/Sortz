@@ -30,9 +30,10 @@ public static partial class Sortz
 
         try
         {
+            int minimumRun = Math.Max(1024, ParallelThreshold<T>() >> 1);
             int workers = 2;
             while (workers * 2 <= ParallelSortProcessorCount &&
-                   values.Length / (workers * 2) >= 1024)
+                   values.Length / (workers * 2) >= minimumRun)
                 workers *= 2;
 
             SortParallelRuns(values, comparer, workers);
