@@ -29,8 +29,8 @@ public sealed class ComparisonConfig : ManualConfig
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Default)
             .WithJitTieringMode(BenchmarkDotNet.Engines.JitTieringMode.Auto)
-            .WithWarmupCount(5)
-            .WithIterationCount(8)
+            .WithWarmupCount(6)
+            .WithIterationCount(10)
             .WithLaunchCount(1)
             .WithInvocationCount(InvocationCount)
             .WithUnrollFactor(InvocationCount));
