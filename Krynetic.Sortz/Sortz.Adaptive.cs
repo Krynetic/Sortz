@@ -31,44 +31,97 @@ public static partial class Sortz
         if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
             int width = Vector512<T>.Count;
-            // Check the final overlapping vector rather than a scalar tail.
-            for (; i <= length - width; i += width)
+            if (descending)
             {
-                var a = Vector512.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b = Vector512.LoadUnsafe(ref data, (nuint)i);
-                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
-                    Vector512.LessThanOrEqualAll(a, b))) return false;
+                for (; i <= length - width; i += width)
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
             }
-            if (i < length && length > width)
+            else
             {
-                var a = Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1));
-                var b = Vector512.LoadUnsafe(ref data, (nuint)(length - width));
-                if (!(descending ? Vector512.GreaterThanOrEqualAll(a, b) :
-                    Vector512.LessThanOrEqualAll(a, b))) return false;
-                i = length;
+                for (; i <= length - width; i += width)
+                    if (!Vector512.LessThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector512.LessThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
             }
         }
         else if (Vector256.IsHardwareAccelerated && Vector256<T>.IsSupported)
         {
             int width = Vector256<T>.Count;
-            for (; i <= length - width; i += width)
+            if (descending)
             {
-                var a = Vector256.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b = Vector256.LoadUnsafe(ref data, (nuint)i);
-                if (!(descending ? Vector256.GreaterThanOrEqualAll(a, b) :
-                    Vector256.LessThanOrEqualAll(a, b))) return false;
+                for (; i <= length - width; i += width)
+                    if (!Vector256.GreaterThanOrEqualAll(
+                        Vector256.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector256.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector256.GreaterThanOrEqualAll(
+                        Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector256.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
+            }
+            else
+            {
+                for (; i <= length - width; i += width)
+                    if (!Vector256.LessThanOrEqualAll(
+                        Vector256.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector256.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector256.LessThanOrEqualAll(
+                        Vector256.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector256.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
             }
         }
-
         else if (Vector128.IsHardwareAccelerated && Vector128<T>.IsSupported)
         {
             int width = Vector128<T>.Count;
-            for (; i <= length - width; i += width)
+            if (descending)
             {
-                var a = Vector128.LoadUnsafe(ref data, (nuint)(i - 1));
-                var b = Vector128.LoadUnsafe(ref data, (nuint)i);
-                if (!(descending ? Vector128.GreaterThanOrEqualAll(a, b) :
-                    Vector128.LessThanOrEqualAll(a, b))) return false;
+                for (; i <= length - width; i += width)
+                    if (!Vector128.GreaterThanOrEqualAll(
+                        Vector128.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector128.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector128.GreaterThanOrEqualAll(
+                        Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector128.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
+            }
+            else
+            {
+                for (; i <= length - width; i += width)
+                    if (!Vector128.LessThanOrEqualAll(
+                        Vector128.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector128.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > width)
+                {
+                    if (!Vector128.LessThanOrEqualAll(
+                        Vector128.LoadUnsafe(ref data, (nuint)(length - width - 1)),
+                        Vector128.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
+                    i = length;
+                }
             }
         }
 
