@@ -30,10 +30,9 @@ public static partial class Sortz
 
         try
         {
-            int minimumRun = Math.Max(1024, ParallelThreshold<T>() >> 1);
             int workers = 2;
             while (workers * 2 <= ParallelSortProcessorCount &&
-                   values.Length / (workers * 2) >= minimumRun)
+                   values.Length / (workers * 2) >= 1024)
                 workers *= 2;
 
             SortParallelRuns(values, comparer, workers);
@@ -143,26 +142,6 @@ public static partial class Sortz
         return lo;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int CompareParallelKeys<T>(T a, T b, IComparer<T> comparer)
-    {
-        if (typeof(T) == typeof(string) && ReferenceEquals(comparer, StringComparer.Ordinal))
-            return string.CompareOrdinal(Unsafe.As<T, string?>(ref a), Unsafe.As<T, string?>(ref b));
-        if (typeof(T) == typeof(int))
-            return Unsafe.As<T, int>(ref a).CompareTo(Unsafe.As<T, int>(ref b));
-        if (typeof(T) == typeof(long))
-            return Unsafe.As<T, long>(ref a).CompareTo(Unsafe.As<T, long>(ref b));
-        if (typeof(T) == typeof(uint))
-            return Unsafe.As<T, uint>(ref a).CompareTo(Unsafe.As<T, uint>(ref b));
-        if (typeof(T) == typeof(ulong))
-            return Unsafe.As<T, ulong>(ref a).CompareTo(Unsafe.As<T, ulong>(ref b));
-        if (typeof(T) == typeof(double))
-            return Unsafe.As<T, double>(ref a).CompareTo(Unsafe.As<T, double>(ref b));
-        if (typeof(T) == typeof(float))
-            return Unsafe.As<T, float>(ref a).CompareTo(Unsafe.As<T, float>(ref b));
-        return comparer.Compare(a, b);
-    }
-
     private static void MergeParallelRange<T>(T[] source, T[] target, int start, int middle,
         int end, int outputStart, int outputEnd, IComparer<T> comparer)
     {
@@ -198,43 +177,22 @@ public static partial class Sortz
         int leftCount = MergeParallelRank(ref input, start, middle, end, rank, comparer);
         int left = start + leftCount, right = middle + rank - leftCount;
         int write = outputStart;
-        int streak = 0;
         while (write < outputEnd && left < middle && right < end)
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
-            // Four consecutive keys from one run can be copied without
-            // individual comparisons when its last key precedes the other head.
-            if (outputEnd - write >= 4 && (streak >= 4 || streak <= -4))
-            {
-                if (streak >= 4 && middle - left >= 4 &&
-                    CompareParallelKeys(Unsafe.Add(ref input, left + 3), b, comparer) <= 0)
-                {
-                    source.AsSpan(left, 4).CopyTo(target.AsSpan(write));
-                    left += 4;
-                    write += 4;
-                    continue;
-                }
-                if (streak <= -4 && end - right >= 4 &&
-                    CompareParallelKeys(a, Unsafe.Add(ref input, right + 3), comparer) > 0)
-                {
-                    source.AsSpan(right, 4).CopyTo(target.AsSpan(write));
-                    right += 4;
-                    write += 4;
-                    continue;
-                }
-            }
-            if (CompareParallelKeys(a, b, comparer) <= 0)
+            // The caller only enters this engine for default-comparer
+            // reference types implementing IComparable<T>. Avoid the
+            // generic comparer dispatch while preserving null ordering.
+            if (a is null || (b is not null && ((IComparable<T>)a).CompareTo(b) <= 0))
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
-                streak = streak > 0 ? Math.Min(4, streak + 1) : 1;
             }
             else
             {
                 Unsafe.Add(ref output, write++) = b;
                 right++;
-                streak = streak < 0 ? Math.Max(-4, streak - 1) : -1;
             }
         }
 
