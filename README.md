@@ -6,28 +6,42 @@ High-performance, in-place sorting for .NET lists and spans. Sortz uses **hardwa
 
 ## Performance
 
-**Sortz ranks #1 overall by benchmark wins** against the **.NET built-in**, **YamSort**, **Celerity.Sorting**, **HPCsharp**, **Anoprsst** and **SortingNetworksMergeSort** in [Sorting library comparison (PR #17)](https://github.com/Krynetic/Sortz/actions/runs/45633501866?pr=17): **49 of 64 workloads (76.6%)**, with zero managed allocation reported for all 64 Sortz measurements.
+**Sortz ranks #1 overall by benchmark wins**, taking first place in **41 of 48 workloads (85.4%)** against six competing implementations in [Sorting library comparison — November 27, 2026](https://github.com/Krynetic/Sortz/actions/runs/45970966424). Sortz is **1.75× faster than its previous published comparison on matching workloads** (43.0% lower geometric-mean sorting time), with **5.86× geometric-mean speedup and up to 49.26× speedup over .NET `List<T>.Sort()`**. Zero managed allocation was reported for all 48 Sortz measurements.
 
-| Competitor | Sortz wins | Geometric mean speedup | Peak speedup |
-|---|---:|---:|---:|
-| .NET `List<T>.Sort()` | 59/64 | 4.09× | 15.51× |
-| YamSort 1.1.0 | 64/64 | 4.49× | 49.26× |
-| Celerity.Sorting 3.6.0 | 60/64 | 5.22× | 28.40× |
-| HPCsharp 3.19.8 | 64/64 | 7.30× | 40.92× |
-| Anoprsst 1.1.2 | 53/64 | 2.21× | 12.84× |
-| SortingNetworksMergeSort (SourceGen 0.1.0) | 64/64 | 6.31× | 20.50× |
+### Competitor comparison
 
-| Input pattern | Fastest of seven | vs .NET | vs YamSort | vs Celerity | vs HPCsharp | vs Anoprsst | vs SortingNetworks |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Random | 14/16 | 4.74× | 8.66× | 2.78× | 4.46× | 2.88× | 6.04× |
-| Ascending | 12/16 | 5.11× | 2.38× | 8.33× | 13.59× | 2.94× | 6.84× |
-| Descending | 15/16 | 7.26× | 7.04× | 11.22× | 13.77× | 2.84× | 9.97× |
-| NearlySorted | 8/16 | 1.59× | 2.79× | 2.86× | 3.40× | 0.99× | 3.86× |
+| Competitor | Sortz wins | Previous matched speedup | Latest speedup | Peak speedup |
+|---|---:|---:|---:|---:|
+| .NET `List<T>.Sort()` | 44/48 | 3.69× | 5.86× | 49.26× |
+| YamSort | 47/48 | 4.46× | 7.22× | 48.18× |
+| Celerity.Sorting | 46/48 | 5.58× | 9.58× | 83.30× |
+| HPCsharp | 48/48 | 7.46× | 13.01× | 103.45× |
+| Anoprsst | 44/48 | 2.47× | 3.54× | 38.91× |
+| SortingNetworksMergeSort | 46/48 | 5.81× | 9.23× | 67.28× |
 
-The comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024, 10,000 and 100,000 elements per pattern (448 timed benchmark cases).  
-Sortz has the lowest reported mean in 49/64 workloads; Anoprsst wins 9, .NET wins 3 and Celerity wins 3. YamSort, HPCsharp and SortingNetworksMergeSort win none. Small timing differences are not necessarily statistically significant.  
-SortingNetworksMergeSort combines generated sorting networks with a full-array merge adapter; its timings include merging and scratch allocation. It is not a standalone general-purpose SortingNetworks API. Anoprsst may use parallel sorting on larger inputs.  
-This is a measured suite-wide ranking, not a universal fastest-library guarantee.
+Sortz wins 275 of 288 head-to-head comparisons (95.5%). Across the seven implementations, Sortz has the lowest reported mean in 41/48 workloads, Anoprsst in 3, .NET in 2 and Celerity in 2. YamSort, HPCsharp and SortingNetworksMergeSort win none.
+
+### Improvement over previous Sortz
+
+| Type | Sortz vs previous Sortz | Improved workloads | Previous first places | Latest first places |
+|---|---:|---:|---:|---:|
+| double | 2.23× | 11/12 | 9/12 | 10/12 |
+| int | 2.22× | 12/12 | 12/12 | 12/12 |
+| long | 1.66× | 9/12 | 10/12 | 10/12 |
+| string | 1.15× | 10/12 | 9/12 | 9/12 |
+
+| Input pattern | Sortz vs previous Sortz | Fastest of seven | vs .NET | vs YamSort | vs Celerity | vs HPCsharp | vs Anoprsst | vs SortingNetworks |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Random | 1.02× | 10/12 | 3.45× | 6.89× | 3.15× | 4.58× | 2.95× | 4.51× |
+| Ascending | 2.89× | 10/12 | 12.88× | 6.73× | 23.08× | 40.25× | 7.30× | 18.05× |
+| Descending | 2.35× | 12/12 | 14.26× | 16.91× | 26.06× | 31.72× | 5.53× | 19.79× |
+| NearlySorted | 1.37× | 9/12 | 1.86× | 3.46× | 4.45× | 4.90× | 1.31× | 4.50× |
+
+The latest comparison covers `int`, `long`, `double` and ordinal `string`, with 128, 1,024 and 10,000 elements across four input patterns (336 timed benchmark cases). Compared with the same 48 workloads in the [previous comparison (PR #17)](https://github.com/Krynetic/Sortz/actions/runs/45633501866?pr=17), Sortz improves 42/48 reported means and wins 41/48 rather than 40/48. The previous full suite also included 100,000-element workloads (49/64 first places); those were not rerun and are excluded from matched speedups. The earlier run used 20 warmups and 40 measured iterations; the latest uses 8 and 16, respectively. Differences are observed cross-run results, not isolated algorithm effects or statistical significance claims.
+
+SortingNetworksMergeSort combines generated sorting networks with a full-array merge adapter; its timings include merging and scratch allocation. It is not a standalone general-purpose SortingNetworks API. Anoprsst may use parallel sorting on larger inputs.
+
+This is a measured suite-wide ranking, not a universal fastest-library guarantee. See [detailed latest and historical results](docs/benchmarks.md#competitor-comparison), including all six regressions and full timing tables.
 
 ### Broader type coverage — random inputs
 
@@ -59,7 +73,7 @@ All 648 tests passed in that workflow.
 | object benchmark | 4.01× | 4.60× | 4.46× |
 
 Speedups are **(competitor mean)** / **(Sortz mean)** (higher is better); geometric means weight each workload equally. Both workflows ran on **AMD Ryzen 9 7900X, Ubuntu 24.04.5, .NET 11, BenchmarkDotNet 0.16.0-preview.2**.  
-The comparison uses 20 warmups, 40 measured iterations and 16 independent sorts per invocation, with source restoration outside measured work.  
+The latest comparison uses 8 warmups, 16 measured iterations and 16 independent sorts per invocation, with source restoration outside measured work. The broader type coverage above is historical and was not rerun by the latest comparison.  
 Results are hardware- and workload-dependent.
 
 See the [full competitor timings and allocation results](docs/benchmarks.md#competitor-comparison) and [complete primitive benchmark timings](docs/benchmarks.md).
