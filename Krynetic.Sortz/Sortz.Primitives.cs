@@ -105,7 +105,7 @@ public static partial class Sortz
             return;
         }
 
-        if (Avx512BW.IsSupported)
+        if (Avx512BW.IsSupported && sign == 0)
         {
             switch (values.Length)
             {
@@ -191,6 +191,11 @@ public static partial class Sortz
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         var bits = MemoryMarshal.Cast<short, ushort>(values);
+        if (Avx512BW.IsSupported && values.Length == 128)
+        {
+            PrimitiveSimdSort.SortInt16_128(bits);
+            return;
+        }
         XorKeys(bits, (ushort)0x8000);
         try { SortUInt16Unordered(bits); }
         finally { XorKeys(bits, (ushort)0x8000); }
@@ -275,6 +280,11 @@ public static partial class Sortz
         if (TryOrderedInteger(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (Vector512.IsHardwareAccelerated && values.Length == 128)
+        {
+            SimdSort.SortUInt32_128(MemoryMarshal.Cast<uint, int>(values));
+            return;
+        }
         XorKeys(values, 0x80000000u);
         try { SortInt32Unordered(MemoryMarshal.Cast<uint, int>(values)); }
         finally { XorKeys(values, 0x80000000u); }
@@ -285,6 +295,11 @@ public static partial class Sortz
         if (TryOrderedNumeric(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
+        if (Vector512.IsHardwareAccelerated && values.Length == 128)
+        {
+            SimdSort.SortInt64_128(MemoryMarshal.Cast<long, ulong>(values));
+            return;
+        }
         // High-digit distribution avoids the large register network when
         // the input is sufficiently dispersed. Skewed inputs fall back.
         if (values.Length is >= 512 and <= 2048)
@@ -509,7 +524,7 @@ public static partial class Sortz
     // encountered in a SIMD block falls back to the exact existing sorter.
     private static bool TryOrderedHalf(Span<Half> values)
     {
-        if (!Avx512BW.IsSupported || values.Length < 33)
+        if (!Avx512BW.IsSupported || values.Length is < 33 or > 256)
             return TryOrdered(values, Comparer<Half>.Default);
 
         ref Half data = ref MemoryMarshal.GetReference(values);
@@ -714,11 +729,9 @@ public static partial class Sortz
             var a = Vector512.LoadUnsafe(ref words, (nuint)(i - 1) * 2);
             var b = Vector512.LoadUnsafe(ref words, (nuint)i * 2);
             if (descending) (a, b) = (b, a);
-            ulong high = Vector512.ExtractMostSignificantBits(
-                Vector512.GreaterThan(a, b)) >> 1;
+            ulong greater = Vector512.ExtractMostSignificantBits(Vector512.GreaterThan(a, b));
             ulong equal = Vector512.ExtractMostSignificantBits(Vector512.Equals(a, b)) >> 1;
-            ulong low = Vector512.ExtractMostSignificantBits(Vector512.GreaterThan(a, b));
-            if (((high | (equal & low)) & 0x55UL) != 0) return false;
+            if ((((greater >> 1) | (equal & greater)) & 0x55UL) != 0) return false;
         }
 
         for (; i < length; i++)
