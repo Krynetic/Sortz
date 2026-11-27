@@ -124,77 +124,173 @@ dotnet add package Krynetic.Sortz
 
 Or reference the library project directly when working from the repository.
 
-## Quick start
+## **Quick start**
 
 ```csharp
 using Krynetic.Sortz;
 
 List<int> values = [5, 1, 4, 2, 3];
-values.Sortz();
+Sortz.Sort(values);
 
 // [1, 2, 3, 4, 5]
 ```
 
-### Sort arrays and spans
+Alternatively, use the extension method:
 
 ```csharp
-using Krynetic.Sortz;
+values.Sortz();
+```
 
+---
+
+### **Arrays**
+
+Sort arrays directly without converting them to spans.
+
+```csharp
 int[] numbers = [9, 3, 7, 1];
-Sortz.Sort(numbers.AsSpan());
+Sortz.Sort(numbers);
+```
 
+### **Spans**
+
+Sort spans, stack-allocated buffers and array slices in place.
+
+```csharp
 Span<int> buffer = stackalloc int[] { 8, 4, 2, 6 };
 Sortz.Sort(buffer);
+
+int[] numbers = [9, 3, 7, 1];
 
 // Sort only a range of an array.
 Sortz.Sort(numbers.AsSpan(1, 2));
 ```
 
-### Custom comparers and descending order
+### **Memory**
+
+Sort memory regions directly, including sliced memory.
 
 ```csharp
-using Krynetic.Sortz;
+int[] numbers = [9, 3, 7, 1];
 
-List<int> values = [5, 1, 4, 2, 3];
-values.Sortz(Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
+Memory<int> memory = numbers.AsMemory();
+Sortz.Sort(memory);
+
+// Sort only a portion of the memory.
+Sortz.Sort(memory.Slice(1, 2));
 ```
 
-### Strings
+### **Array segments**
+
+Sort a segment of an array while leaving elements outside the segment unchanged.
 
 ```csharp
+int[] numbers = [9, 3, 7, 1];
+
+ArraySegment<int> segment = new(numbers, 1, 2);
+Sortz.Sort(segment);
+
+// [9, 3, 7, 1]
+```
+
+### **Memory owners**
+
+Sort memory exposed by an `IMemoryOwner<T>` directly, including pooled memory.
+
+```csharp
+using System.Buffers;
 using Krynetic.Sortz;
 
-List<string> names = ["Charlie", "Alice", "Bob"];
+using IMemoryOwner<int> owner = MemoryPool<int>.Shared.Rent(4);
+
+Span<int> values = owner.Memory.Span;
+values.Fill(0);
+
+values[0] = 9;
+values[1] = 3;
+values[2] = 7;
+values[3] = 1;
+
+// Sort the entire exposed memory region.
+Sortz.Sort(owner);
+
+// Alternatively, sort only the requested elements.
+Sortz.Sort(owner.Memory[..4]);
+```
+
+Sortz does not dispose the memory owner or transfer ownership. Note that a memory pool may return a larger memory region than requested.
+
+### **Custom comparers and descending order**
+
+All sorting overloads support custom comparers.
+
+```csharp
+List<int> values = [5, 1, 4, 2, 3];
+
+Sortz.Sort(values, Comparer<int>.Create(static (a, b) => b.CompareTo(a)));
+
+// [5, 4, 3, 2, 1]
+```
+
+### **Strings**
+
+```csharp
+string[] names = ["Charlie", "Alice", "Bob"];
 
 // Default comparison (culture-sensitive for strings).
-names.Sortz();
+Sortz.Sort(names);
 
 // Ordinal comparison.
-names.Sortz(StringComparer.Ordinal);
+Sortz.Sort(names, StringComparer.Ordinal);
 
 // Case-insensitive ordinal comparison.
-names.Sortz(StringComparer.OrdinalIgnoreCase);
+Sortz.Sort(names, StringComparer.OrdinalIgnoreCase);
 ```
 
-### Custom types
+### **Custom types**
 
 ```csharp
-using Krynetic.Sortz;
-
 List<Product> products = [new("Keyboard", 129), new("Mouse", 49)];
-products.Sortz(Comparer<Product>.Create(static (a, b) => a.Price.CompareTo(b.Price)));
+
+Sortz.Sort(products, Comparer<Product>.Create(
+    static (a, b) => a.Price.CompareTo(b.Price)));
 
 record Product(string Name, decimal Price);
 ```
 
-The extension method is provided by `SortzExtensions`; the span API is provided by `Krynetic.Sortz.Sortz`.
+## **API**
 
-## API
+All sorting operations are performed **in place**. When no comparer is specified, `Comparer<T>.Default` is used.
 
-| API                                                            | Description                                                                |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `list.Sortz(comparer = null)`                                  | Sorts a `List<T>` in place.                                                |
-| `Sortz.Sort<T>(Span<T> values, IComparer<T>? comparer = null)` | Sorts a span in place, including array slices and stack-allocated buffers. |
+### **Static methods**
+
+Provided by `Krynetic.Sortz.Sortz`.
+
+| API                                                               | Description                                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `Sort<T>(T[] array, IComparer<T>? comparer = null)`               | Sorts an array in place.                                                                      |
+| `Sort<T>(List<T> list, IComparer<T>? comparer = null)`            | Sorts a list in place.                                                                        |
+| `Sort<T>(Span<T> values, IComparer<T>? comparer = null)`          | Sorts a span, including stack-allocated buffers and array slices.                             |
+| `Sort<T>(Memory<T> memory, IComparer<T>? comparer = null)`        | Sorts a memory region in place.                                                               |
+| `Sort<T>(ArraySegment<T> segment, IComparer<T>? comparer = null)` | Sorts an array segment without modifying elements outside it.                                 |
+| `Sort<T>(IMemoryOwner<T> owner, IComparer<T>? comparer = null)`   | Sorts the entire exposed memory region without transferring ownership or disposing the owner. |
+
+### **Extension methods**
+
+Provided by `Krynetic.Sortz.SortzExtensions`.
+
+| API                              | Description                                      |
+| -------------------------------- | ------------------------------------------------ |
+| `array.Sortz(comparer = null)`   | Sorts an array in place.                         |
+| `list.Sortz(comparer = null)`    | Sorts a list in place.                           |
+| `span.Sortz(comparer = null)`    | Sorts a span in place.                           |
+| `memory.Sortz(comparer = null)`  | Sorts a memory region in place.                  |
+| `segment.Sortz(comparer = null)` | Sorts an array segment in place.                 |
+| `owner.Sortz(comparer = null)`   | Sorts the entire exposed memory region in place. |
+
+All overloads forward to the same highly optimized span-based sorting implementation without copying the underlying collection.
+
+*The extension method table assumes `SortzExtensions` exposes matching overloads for all six supported types.*
 
 
 When no comparer is supplied, sorting uses `Comparer<T>.Default`. Specialized paths are selected automatically when compatible with the type, comparer, input and hardware. Arbitrary comparers use comparison-based sorting.
