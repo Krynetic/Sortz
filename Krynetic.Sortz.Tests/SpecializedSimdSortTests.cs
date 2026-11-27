@@ -100,6 +100,39 @@ public sealed class SpecializedSimdSortTests
         CheckSlice(values.Select(x => (UInt128)(x + count) << 64).ToArray(), UInt128.MinValue, UInt128.MaxValue);
     }
 
+    [Theory]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    public void FusedSignNetworksPreserveFullWidthKeys(int count)
+    {
+        var random = new Random(count);
+        byte[] raw = new byte[count * sizeof(long)];
+        for (int iteration = 0; iteration < 16; iteration++)
+        {
+            random.NextBytes(raw);
+            var signed16 = new short[count];
+            var unsigned32 = new uint[count];
+            var signed64 = new long[count];
+            for (int i = 0; i < count; i++)
+            {
+                signed16[i] = BitConverter.ToInt16(raw, i * sizeof(short));
+                unsigned32[i] = BitConverter.ToUInt32(raw, i * sizeof(uint));
+                signed64[i] = BitConverter.ToInt64(raw, i * sizeof(long));
+            }
+            signed16[0] = short.MinValue; signed16[1] = short.MaxValue;
+            unsigned32[0] = uint.MinValue; unsigned32[1] = uint.MaxValue;
+            signed64[0] = long.MinValue; signed64[1] = long.MaxValue;
+            signed16[2] = signed16[3] = 0;
+            unsigned32[2] = unsigned32[3] = 0x80000000u;
+            signed64[2] = signed64[3] = -1;
+            CheckSlice(signed16, (short)-7, (short)9);
+            CheckSlice(unsigned32, 7u, 9u);
+            CheckSlice(signed64, -7L, 9L);
+            CheckSlice(signed64.Select(x => unchecked((nint)x)).ToArray(), (nint)(-7), (nint)9);
+        }
+    }
+
     private static void CheckPatterns<T>(T[] input, T before, T after)
     {
         CheckSlice(input, before, after);
