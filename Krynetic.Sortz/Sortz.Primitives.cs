@@ -42,6 +42,20 @@ public static partial class Sortz
         ref byte data = ref MemoryMarshal.GetReference(bytes);
         if (Vector512.IsHardwareAccelerated)
         {
+            // Four independent masks hide compare/popcount latency.
+            int c1 = 0, c2 = 0, c3 = 0;
+            for (; i <= bytes.Length - 256; i += 256)
+            {
+                count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
+                c1 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 64)), Vector512<byte>.Zero)));
+                c2 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 128)), Vector512<byte>.Zero)));
+                c3 += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
+                    Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)(i + 192)), Vector512<byte>.Zero)));
+            }
+            count += c1 + c2 + c3;
             for (; i <= bytes.Length - 64; i += 64)
                 count += BitOperations.PopCount(Vector512.ExtractMostSignificantBits(
                     Vector512.Equals(Vector512.LoadUnsafe(ref data, (nuint)i), Vector512<byte>.Zero)));
@@ -586,9 +600,49 @@ public static partial class Sortz
         }
     }
 
+    // Each 128-bit key occupies two 64-bit lanes: unsigned low, signed high.
+    // The high comparison decides unless the high halves are equal.
+    private static bool TryOrderedInt128(Span<Int128> values)
+    {
+        if (!Vector512.IsHardwareAccelerated || !BitConverter.IsLittleEndian || values.Length < 8)
+            return TryOrderedInteger(values);
+
+        ref Int128 data = ref MemoryMarshal.GetReference(values);
+        int length = values.Length;
+        bool descending = data > Unsafe.Add(ref data, length - 1);
+        int i = 1;
+        for (; i < 5; i++)
+        {
+            Int128 a = Unsafe.Add(ref data, i - 1), b = Unsafe.Add(ref data, i);
+            if (descending ? a < b : a > b) return false;
+        }
+
+        ref ulong words = ref Unsafe.As<Int128, ulong>(ref data);
+        for (; i <= length - 4; i += 4)
+        {
+            var a = Vector512.LoadUnsafe(ref words, (nuint)(i - 1) * 2);
+            var b = Vector512.LoadUnsafe(ref words, (nuint)i * 2);
+            if (descending) (a, b) = (b, a);
+            ulong high = Vector512.ExtractMostSignificantBits(
+                Vector512.GreaterThan(a.AsInt64(), b.AsInt64())) >> 1;
+            ulong equal = Vector512.ExtractMostSignificantBits(Vector512.Equals(a, b)) >> 1;
+            ulong low = Vector512.ExtractMostSignificantBits(Vector512.GreaterThan(a, b));
+            if (((high | (equal & low)) & 0x55UL) != 0) return false;
+        }
+
+        for (; i < length; i++)
+        {
+            Int128 a = Unsafe.Add(ref data, i - 1), b = Unsafe.Add(ref data, i);
+            if (descending ? a < b : a > b) return false;
+        }
+
+        if (descending) values.Reverse();
+        return true;
+    }
+
     private static void SortInt128(Span<Int128> values)
     {
-        if (TryOrderedInteger(values)) return;
+        if (TryOrderedInt128(values)) return;
         if (values.Length >= 256 && TrySparseRepair(values)) return;
         if (values.Length <= 32) { InsertionInteger(values); return; }
         if (values.Length <= 65536 && TryProjectedCompact(values, Comparer<Int128>.Default, true)) return;
