@@ -27,13 +27,12 @@ public static partial class Sortz
         if (typeof(T) == typeof(bool)) return 4 * 1024 * 1024;
         if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte)) return 256 * 1024;
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort) ||
-            typeof(T) == typeof(char)) return 8192;
-        if (typeof(T) == typeof(Half)) return 128 * 1024;
+            typeof(T) == typeof(char) || typeof(T) == typeof(Half)) return 128 * 1024;
         if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
             typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
             typeof(T) == typeof(nint) || typeof(T) == typeof(nuint) ||
-            typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return 8192;
-        if (typeof(T) == typeof(float) || typeof(T) == typeof(double)) return 64 * 1024;
+            typeof(T) == typeof(float) || typeof(T) == typeof(double) ||
+            typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return 64 * 1024;
         if (typeof(T) == typeof(decimal)) return 64 * 1024;
         if (typeof(T) == typeof(string)) return 128 * 1024;
         if (!typeof(T).IsValueType) return 8192;
@@ -72,8 +71,8 @@ public static partial class Sortz
 
             if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
                 SortParallelSmallDomain(values, workers);
-            else if (IsParallelInteger<T>())
-                SortParallelIntegerBuckets(values);
+            else if (IsParallelRadixInteger<T>())
+                SortParallelRadixBuckets(values, workers);
             else
                 SortParallelRuns(values, comparer, workers);
 
@@ -109,7 +108,7 @@ public static partial class Sortz
         (int)((long)length * index / parts);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsParallelInteger<T>() =>
+    private static bool IsParallelRadixInteger<T>() =>
         typeof(T) == typeof(short) || typeof(T) == typeof(ushort) || typeof(T) == typeof(char) ||
         typeof(T) == typeof(int) || typeof(T) == typeof(uint) ||
         typeof(T) == typeof(long) || typeof(T) == typeof(ulong) ||
@@ -117,7 +116,7 @@ public static partial class Sortz
         typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static UInt128 ParallelIntegerKey<T>(T value)
+    private static ulong ParallelRadixKey<T>(T value)
     {
         if (typeof(T) == typeof(short)) return unchecked((ushort)(Unsafe.As<T, short>(ref value) ^ short.MinValue));
         if (typeof(T) == typeof(ushort) || typeof(T) == typeof(char)) return Unsafe.As<T, ushort>(ref value);
@@ -127,47 +126,107 @@ public static partial class Sortz
         if (typeof(T) == typeof(ulong)) return Unsafe.As<T, ulong>(ref value);
         if (typeof(T) == typeof(nint)) return unchecked((nuint)(Unsafe.As<T, nint>(ref value) ^ nint.MinValue));
         if (typeof(T) == typeof(nuint)) return Unsafe.As<T, nuint>(ref value);
-        if (typeof(T) == typeof(Int128)) return unchecked((UInt128)(Unsafe.As<T, Int128>(ref value) ^ Int128.MinValue));
-        return Unsafe.As<T, UInt128>(ref value);
+        if (typeof(T) == typeof(Int128)) return (ulong)(unchecked((UInt128)(Unsafe.As<T, Int128>(ref value) ^ Int128.MinValue)) >> 64);
+        return (ulong)(Unsafe.As<T, UInt128>(ref value) >> 64);
     }
 
-    private static void SortParallelIntegerBuckets<T>(Span<T> values)
+    private static void SortParallelRadixBuckets<T>(Span<T> values, int workers)
     {
+        const int buckets = 32;
+        const int stride = 64;
         int length = values.Length;
-        const int bucketCount = 64;
-        UInt128 min = UInt128.MaxValue, max = 0;
-        foreach (T value in values)
-        {
-            UInt128 key = ParallelIntegerKey(value);
-            if (key < min) min = key;
-            if (key > max) max = key;
-        }
-        UInt128 range = max - min;
-        if (range == 0) return;
-        ulong high = (ulong)(range >> 64);
-        int bits = high != 0 ? 128 - System.Numerics.BitOperations.LeadingZeroCount(high)
-            : 64 - System.Numerics.BitOperations.LeadingZeroCount((ulong)range);
-        int shift = Math.Max(0, bits - 6);
-        Span<int> counts = stackalloc int[bucketCount];
-        counts.Clear();
-        foreach (T value in values)
-            counts[(int)((ParallelIntegerKey(value) - min) >> shift)]++;
-        int[] offsets = new int[bucketCount + 1];
-        for (int i = 0; i < bucketCount; i++) offsets[i + 1] = offsets[i] + counts[i];
-        offsets.AsSpan(0, bucketCount).CopyTo(counts);
-        T[] buffer = ArrayPool<T>.Shared.Rent(length);
+        var pool = ArrayPool<T>.Shared;
+        T[] source = pool.Rent(length);
+        T[]? target = null;
+        int[] counts = new int[workers * stride];
+        int[] offsets = new int[buckets + 1];
+        ulong[] minima = new ulong[workers], maxima = new ulong[workers];
         try
         {
-            foreach (T value in values)
-                buffer[counts[(int)((ParallelIntegerKey(value) - min) >> shift)]++] = value;
-            Parallel.For(0, bucketCount, SortParallelOptions, bucket =>
+            values.CopyTo(source.AsSpan(0, length));
+            // Determine the actual varying high bits in parallel, rather than
+            // assuming that the full numeric domain is represented.
+            Parallel.For(0, workers, SortParallelOptions, worker =>
+            {
+                int start = ParallelBoundary(length, worker, workers);
+                int end = ParallelBoundary(length, worker + 1, workers);
+                ulong min = ulong.MaxValue, max = 0;
+                for (int i = start; i < end; i++)
+                {
+                    ulong key = ParallelRadixKey(source[i]);
+                    min = Math.Min(min, key);
+                    max = Math.Max(max, key);
+                }
+                minima[worker] = min;
+                maxima[worker] = max;
+            });
+            ulong minimum = ulong.MaxValue, maximum = 0;
+            for (int i = 0; i < workers; i++)
+            {
+                minimum = Math.Min(minimum, minima[i]);
+                maximum = Math.Max(maximum, maxima[i]);
+            }
+            ulong range = maximum - minimum;
+            if (range == 0)
+            {
+                // In particular, 128-bit keys may differ only in their low word.
+                SortParallelRuns(values, Comparer<T>.Default, workers);
+                return;
+            }
+            int shift = Math.Max(0, 64 - System.Numerics.BitOperations.LeadingZeroCount(range) - 5);
+            Parallel.For(0, workers, SortParallelOptions, worker =>
+            {
+                int start = ParallelBoundary(length, worker, workers);
+                int end = ParallelBoundary(length, worker + 1, workers);
+                int row = worker * stride;
+                for (int i = start; i < end; i++)
+                    counts[row + (int)((ParallelRadixKey(source[i]) - minimum) >> shift)]++;
+            });
+            int total = 0, largest = 0;
+            for (int bucket = 0; bucket < buckets; bucket++)
+            {
+                offsets[bucket] = total;
+                for (int worker = 0; worker < workers; worker++)
+                {
+                    int index = worker * stride + bucket;
+                    int count = counts[index];
+                    counts[index] = total;
+                    total += count;
+                }
+                largest = Math.Max(largest, total - offsets[bucket]);
+            }
+            offsets[buckets] = total;
+            if (largest > length / 2)
+            {
+                SortParallelRuns(values, Comparer<T>.Default, workers);
+                return;
+            }
+
+            T[] output = target = pool.Rent(length);
+            Parallel.For(0, workers, SortParallelOptions, worker =>
+            {
+                int start = ParallelBoundary(length, worker, workers);
+                int end = ParallelBoundary(length, worker + 1, workers);
+                int row = worker * stride;
+                for (int i = start; i < end; i++)
+                {
+                    T value = source[i];
+                    int bucket = (int)((ParallelRadixKey(value) - minimum) >> shift);
+                    output[counts[row + bucket]++] = value;
+                }
+            });
+            Parallel.For(0, buckets, SortParallelOptions, bucket =>
             {
                 int start = offsets[bucket], count = offsets[bucket + 1] - start;
-                if (count > 1) Sort(buffer.AsSpan(start, count));
+                if (count > 1) Sort(output.AsSpan(start, count));
             });
-            buffer.AsSpan(0, length).CopyTo(values);
+            output.AsSpan(0, length).CopyTo(values);
         }
-        finally { ArrayPool<T>.Shared.Return(buffer); }
+        finally
+        {
+            if (target is not null) pool.Return(target);
+            pool.Return(source);
+        }
     }
 
     private static void SortParallelRuns<T>(Span<T> values, IComparer<T> comparer, int workers)
