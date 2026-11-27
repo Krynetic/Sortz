@@ -11,7 +11,7 @@ public static partial class Sortz
     // One parallel sort per process prevents nested and concurrent sorts from
     // multiplying worker counts. Other calls retain the existing fast paths.
     private static int parallelSortActive;
-    private static readonly int ParallelSortProcessorCount = Math.Min(8, Environment.ProcessorCount);
+    private static readonly int ParallelSortProcessorCount = Math.Min(16, Environment.ProcessorCount);
     private static readonly ParallelOptions SortParallelOptions = new()
     {
         TaskScheduler = TaskScheduler.Default,
@@ -64,10 +64,12 @@ public static partial class Sortz
             int length = values.Length;
             int grain = GetParallelThreshold<T>() / 2;
             if (!typeof(T).IsValueType && typeof(T) != typeof(string))
-                grain = 1024;
+                grain = 512;
 
             int workers = 2;
-            while (workers * 2 <= ParallelSortProcessorCount && length / (workers * 2) >= grain)
+            int workerLimit = !typeof(T).IsValueType && typeof(T) != typeof(string)
+                ? ParallelSortProcessorCount : Math.Min(8, ParallelSortProcessorCount);
+            while (workers * 2 <= workerLimit && length / (workers * 2) >= grain)
                 workers *= 2;
 
             if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
