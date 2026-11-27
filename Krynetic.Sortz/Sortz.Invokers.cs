@@ -66,6 +66,7 @@ public static partial class Sortz
     /// <param name="comparer">
     /// The comparer used to determine the order of elements.
     /// If <see langword="null"/>, <see cref="Comparer{T}.Default"/> is used.
+    /// </param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Sort<T>(ArraySegment<T> segment, IComparer<T>? comparer = null)
     {
