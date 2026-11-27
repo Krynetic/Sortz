@@ -156,23 +156,6 @@ public static partial class Sortz
             return;
         }
 
-        // Reverse-disjoint runs need only two bulk copies, not a merge.
-        if (comparer.Compare(Unsafe.Add(ref input, end - 1),
-            Unsafe.Add(ref input, start)) < 0)
-        {
-            int rightLength = end - middle;
-            int offset = outputStart - start;
-            int count = outputEnd - outputStart;
-            int rightCount = Math.Min(count, Math.Max(0, rightLength - offset));
-            if (rightCount != 0)
-                source.AsSpan(middle + offset, rightCount)
-                    .CopyTo(target.AsSpan(outputStart));
-            if (rightCount != count)
-                source.AsSpan(start + Math.Max(0, offset - rightLength), count - rightCount)
-                    .CopyTo(target.AsSpan(outputStart + rightCount));
-            return;
-        }
-
         int rank = outputStart - start;
         int leftCount = MergeParallelRank(ref input, start, middle, end, rank, comparer);
         int left = start + leftCount, right = middle + rank - leftCount;
@@ -181,10 +164,7 @@ public static partial class Sortz
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
-            // The caller only enters this engine for default-comparer
-            // reference types implementing IComparable<T>. Avoid the
-            // generic comparer dispatch while preserving null ordering.
-            if (a is null || (b is not null && ((IComparable<T>)a).CompareTo(b) <= 0))
+            if (comparer.Compare(a, b) <= 0)
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
