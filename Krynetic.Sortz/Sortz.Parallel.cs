@@ -317,12 +317,22 @@ public static partial class Sortz
         int rank = outputStart - start;
         int leftCount = MergeParallelRank(ref input, start, middle, end, rank, comparer);
         int left = start + leftCount, right = middle + rank - leftCount;
+        int finalRank = outputEnd - start;
+        int finalLeft = MergeParallelRank(ref input, start, middle, end, finalRank, comparer);
+        int leftEnd = start + finalLeft, rightEnd = middle + finalRank - finalLeft;
         int write = outputStart;
-        while (write < outputEnd && left < middle && right < end)
+        while (left < leftEnd && right < rightEnd)
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
-            if (comparer.Compare(a, b) <= 0)
+            if (!RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                bool takeLeft = comparer.Compare(a, b) <= 0;
+                Unsafe.Add(ref output, write++) = takeLeft ? a : b;
+                left += takeLeft ? 1 : 0;
+                right += takeLeft ? 0 : 1;
+            }
+            else if (comparer.Compare(a, b) <= 0)
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
@@ -337,7 +347,7 @@ public static partial class Sortz
         // CopyTo uses the runtime's vectorized memmove and GC write barriers.
         int remaining = outputEnd - write;
         if (remaining != 0)
-            source.AsSpan(left < middle ? left : right, remaining)
+            source.AsSpan(left < leftEnd ? left : right, remaining)
                 .CopyTo(target.AsSpan(write));
     }
 
@@ -350,17 +360,18 @@ public static partial class Sortz
             values.CopyTo(copy.AsSpan(0, length));
             if (typeof(T) == typeof(bool))
             {
-                int[] totals = ArrayPool<int>.Shared.Rent(workers);
+                const int counterStride = 16;
+                int[] totals = ArrayPool<int>.Shared.Rent(workers * counterStride);
                 try
                 {
                     Parallel.For(0, workers, SortParallelOptions, worker =>
                     {
                         int start = ParallelBoundary(length, worker, workers);
                         int end = ParallelBoundary(length, worker + 1, workers);
-                        totals[worker] = CountFalse(Reinterpret<T, bool>(copy.AsSpan(start, end - start)));
+                        totals[worker * counterStride] = CountFalse(Reinterpret<T, bool>(copy.AsSpan(start, end - start)));
                     });
                     int falseCount = 0;
-                    for (int i = 0; i < workers; i++) falseCount += totals[i];
+                    for (int i = 0; i < workers; i++) falseCount += totals[i * counterStride];
                     var flags = Reinterpret<T, bool>(values);
                     flags[..falseCount].Clear();
                     flags[falseCount..].Fill(true);
