@@ -232,12 +232,32 @@ public static partial class Sortz
         {
             ref ushort source = ref MemoryMarshal.GetReference(values);
             ref ushort target = ref MemoryMarshal.GetReference(scratch);
-            for (int i = 0; i < length; i++)
+            int i = 0;
+            for (; i <= length - 4; i += 4)
+            {
+                ushort a = Unsafe.Add(ref source, i), b = Unsafe.Add(ref source, i + 1);
+                ushort c = Unsafe.Add(ref source, i + 2), d = Unsafe.Add(ref source, i + 3);
+                int ia = Unsafe.Add(ref h, (byte)a)++, ib = Unsafe.Add(ref h, (byte)b)++;
+                int ic = Unsafe.Add(ref h, (byte)c)++, id = Unsafe.Add(ref h, (byte)d)++;
+                Unsafe.Add(ref target, ia) = a; Unsafe.Add(ref target, ib) = b;
+                Unsafe.Add(ref target, ic) = c; Unsafe.Add(ref target, id) = d;
+            }
+            for (; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref source, i);
                 Unsafe.Add(ref target, Unsafe.Add(ref h, (byte)value)++) = value;
             }
-            for (int i = 0; i < length; i++)
+            i = 0;
+            for (; i <= length - 4; i += 4)
+            {
+                ushort a = Unsafe.Add(ref target, i), b = Unsafe.Add(ref target, i + 1);
+                ushort c = Unsafe.Add(ref target, i + 2), d = Unsafe.Add(ref target, i + 3);
+                int ia = Unsafe.Add(ref h, 256 + (a >> 8))++, ib = Unsafe.Add(ref h, 256 + (b >> 8))++;
+                int ic = Unsafe.Add(ref h, 256 + (c >> 8))++, id = Unsafe.Add(ref h, 256 + (d >> 8))++;
+                Unsafe.Add(ref source, ia) = a; Unsafe.Add(ref source, ib) = b;
+                Unsafe.Add(ref source, ic) = c; Unsafe.Add(ref source, id) = d;
+            }
+            for (; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref target, i);
                 Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
