@@ -102,12 +102,13 @@ See the [full competitor timings and allocation results](docs/benchmarks.md#comp
 
 ## Installation
 
-Targets **.NET 8**, **.NET 9** and **.NET 11**. Sortz has no additional runtime package dependencies.  
+Targets **.NET 8**, **.NET 9**, **.NET 10** and **.NET 11**. Sortz has no additional runtime package dependencies.  
 **No target for .NET 7 and below exist** due non-existent hardware acceleration possible.
 
 | Target    | Sorting implementation                                                            |
 | --------- | --------------------------------------------------------------------------------- |
 | `net11.0` | Full optimized implementation; all published benchmarks run on this target.       |
+| `net10.0` | Same optimized implementation, including runtime-selected SIMD.                   |
 | `net9.0`  | Same optimized implementation, including runtime-selected SIMD.                   |
 | `net8.0`  | Same optimized implementation, including runtime-selected SIMD and radix sorting. |
 
@@ -115,7 +116,7 @@ Targets **.NET 8**, **.NET 9** and **.NET 11**. Sortz has no additional runtime 
 NuGet selects the most compatible assembly. All three targets share the same sorting source code.  
 Published performance results are measured on .NET 11 only; performance may differ across runtimes.
 
-Once the package is available on NuGet:
+Package is **available** on [NuGet](https://www.nuget.org/packages/Krynetic.Sortz):
 
 ```sh
 dotnet add package Krynetic.Sortz
