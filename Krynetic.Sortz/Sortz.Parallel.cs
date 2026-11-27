@@ -198,19 +198,43 @@ public static partial class Sortz
         int leftCount = MergeParallelRank(ref input, start, middle, end, rank, comparer);
         int left = start + leftCount, right = middle + rank - leftCount;
         int write = outputStart;
+        int streak = 0;
         while (write < outputEnd && left < middle && right < end)
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
+            // Four consecutive keys from one run can be copied without
+            // individual comparisons when its last key precedes the other head.
+            if (outputEnd - write >= 4 && (streak >= 4 || streak <= -4))
+            {
+                if (streak >= 4 && middle - left >= 4 &&
+                    CompareParallelKeys(Unsafe.Add(ref input, left + 3), b, comparer) <= 0)
+                {
+                    source.AsSpan(left, 4).CopyTo(target.AsSpan(write));
+                    left += 4;
+                    write += 4;
+                    continue;
+                }
+                if (streak <= -4 && end - right >= 4 &&
+                    CompareParallelKeys(a, Unsafe.Add(ref input, right + 3), comparer) > 0)
+                {
+                    source.AsSpan(right, 4).CopyTo(target.AsSpan(write));
+                    right += 4;
+                    write += 4;
+                    continue;
+                }
+            }
             if (CompareParallelKeys(a, b, comparer) <= 0)
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
+                streak = streak > 0 ? Math.Min(4, streak + 1) : 1;
             }
             else
             {
                 Unsafe.Add(ref output, write++) = b;
                 right++;
+                streak = streak < 0 ? Math.Max(-4, streak - 1) : -1;
             }
         }
 
