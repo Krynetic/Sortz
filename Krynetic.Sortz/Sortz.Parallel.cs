@@ -143,6 +143,24 @@ public static partial class Sortz
         return lo;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int CompareParallelKeys<T>(T a, T b, IComparer<T> comparer)
+    {
+        if (typeof(T) == typeof(int))
+            return Unsafe.As<T, int>(ref a).CompareTo(Unsafe.As<T, int>(ref b));
+        if (typeof(T) == typeof(long))
+            return Unsafe.As<T, long>(ref a).CompareTo(Unsafe.As<T, long>(ref b));
+        if (typeof(T) == typeof(uint))
+            return Unsafe.As<T, uint>(ref a).CompareTo(Unsafe.As<T, uint>(ref b));
+        if (typeof(T) == typeof(ulong))
+            return Unsafe.As<T, ulong>(ref a).CompareTo(Unsafe.As<T, ulong>(ref b));
+        if (typeof(T) == typeof(double))
+            return Unsafe.As<T, double>(ref a).CompareTo(Unsafe.As<T, double>(ref b));
+        if (typeof(T) == typeof(float))
+            return Unsafe.As<T, float>(ref a).CompareTo(Unsafe.As<T, float>(ref b));
+        return comparer.Compare(a, b);
+    }
+
     private static void MergeParallelRange<T>(T[] source, T[] target, int start, int middle,
         int end, int outputStart, int outputEnd, IComparer<T> comparer)
     {
@@ -165,7 +183,7 @@ public static partial class Sortz
         {
             ref T a = ref Unsafe.Add(ref input, left);
             ref T b = ref Unsafe.Add(ref input, right);
-            if (comparer.Compare(a, b) <= 0)
+            if (CompareParallelKeys(a, b, comparer) <= 0)
             {
                 Unsafe.Add(ref output, write++) = a;
                 left++;
