@@ -1,32 +1,50 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>Krynetic.Sortz</RootNamespace>
-    <AssemblyName>Krynetic.Sortz</AssemblyName>
     <OutputType>Library</OutputType>
     <TargetFrameworks>net8.0;net9.0;net11.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
 
-    <IsPackable>true</IsPackable>
-    <PackageId>Krynetic.Sortz</PackageId>
-    <Version>0.1.0</Version>
-    <Authors>Krynetic</Authors>
+    <RootNamespace>Krynetic.Sortz</RootNamespace>
+    <AssemblyName>Krynetic.Sortz</AssemblyName>
+
+    <!--<WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>-->
+
+    <Version>1.0.0</Version>
+
     <Company>Krynetic</Company>
-    <Description>High-performance, in-place sorting for .NET lists and spans with SIMD-accelerated primitive sorting and comparer-aware fallbacks.</Description>
-    <PackageTags>sorting;sort;performance;simd;span;algorithms</PackageTags>
+    <Title>Krynetic Sortz</Title>
+    <Product>Krynetic Sortz</Product>
+    <Authors>Steven Hartgers</Authors>
+
+    <Description>Extremely fast, hardware-accelerated, in-place sorting for .NET lists and spans. Powered by SIMD, AVX-512, sorting networks, radix sorting and specialized primitive algorithms. Up to 222× faster than built-in .NET sorting in published benchmarks, with zero runtime dependencies.</Description>
+    <Copyright>Copyright © 2026 Krynetic. All rights reserved.</Copyright>
+
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+
     <PackageProjectUrl>https://github.com/Krynetic/Sortz</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Krynetic/Sortz.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <IsPackable>true</IsPackable>
+
+    <PackageId>Krynetic.Sortz</PackageId>
+    <PackageTags>sorting;sort;performance;simd;avx;avx2;avx512;sse;radix;span;hardware-acceleration;sorting-networks;high-performance;algorithms;dotnet</PackageTags>
+
+    <DebugType>portable</DebugType>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <DebugType>portable</DebugType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="/" />
+    <None Include="../LICENSE.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

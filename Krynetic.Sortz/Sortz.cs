@@ -9,10 +9,25 @@ using System.Runtime.InteropServices;
 
 namespace Krynetic.Sortz;
 
+/// <summary>
+/// Provides high-performance, in-place sorting algorithms for lists and spans,
+/// leveraging hardware acceleration, SIMD, sorting networks, and specialized
+/// algorithms for supported types.
+/// </summary>
 public static partial class Sortz
 {
     private const int InsertionThreshold = 16;
 
+    /// <summary>
+    /// Sorts the elements of the specified span in place using highly optimized
+    /// sorting algorithms specialized for the element type.
+    /// </summary>
+    /// <typeparam name="T">The type of elements to sort.</typeparam>
+    /// <param name="values">The span containing the elements to sort.</param>
+    /// <param name="comparer">
+    /// The comparer used to determine the order of elements.
+    /// If <see langword="null"/>, <see cref="Comparer{T}.Default"/> is used.
+    /// </param>
     public static void Sort<T>(Span<T> values, IComparer<T>? comparer = null)
     {
         if (values.Length < 2)
