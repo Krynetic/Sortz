@@ -28,24 +28,25 @@ public static partial class Sortz
             if (descending ? c < 0 : c > 0) return false;
         }
 
-        // Restrict the measured descending-path improvement to Int32.
-        if (typeof(T) == typeof(int) && descending && Vector512.IsHardwareAccelerated)
+        if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
         {
-            int width = Vector512<T>.Count;
-            for (; i <= length - width; i += width)
-                if (!Vector512.GreaterThanOrEqualAll(
-                    Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
-                    Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
-            if (i < length && length > width)
+            if (typeof(T) == typeof(int) && descending && length > Vector512<T>.Count)
             {
-                if (!Vector512.GreaterThanOrEqualAll(
-                    Vector512.LoadUnsafe(ref data, (nuint)(length - width - 1)),
-                    Vector512.LoadUnsafe(ref data, (nuint)(length - width)))) return false;
-                i = length;
+                int descendingWidth = Vector512<T>.Count;
+                for (; i <= length - descendingWidth; i += descendingWidth)
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(i - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)i))) return false;
+                if (i < length && length > descendingWidth)
+                {
+                    if (!Vector512.GreaterThanOrEqualAll(
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - descendingWidth - 1)),
+                        Vector512.LoadUnsafe(ref data, (nuint)(length - descendingWidth)))) return false;
+                    i = length;
+                }
+                values.Reverse();
+                return true;
             }
-        }
-        else if (Vector512.IsHardwareAccelerated && Vector512<T>.IsSupported)
-        {
             int width = Vector512<T>.Count;
             // Check the final overlapping vector rather than a scalar tail.
             for (; i <= length - width; i += width)
