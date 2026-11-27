@@ -232,32 +232,12 @@ public static partial class Sortz
         {
             ref ushort source = ref MemoryMarshal.GetReference(values);
             ref ushort target = ref MemoryMarshal.GetReference(scratch);
-            int i = 0;
-            for (; i <= length - 4; i += 4)
-            {
-                ushort a = Unsafe.Add(ref source, i), b = Unsafe.Add(ref source, i + 1);
-                ushort c = Unsafe.Add(ref source, i + 2), d = Unsafe.Add(ref source, i + 3);
-                int ia = Unsafe.Add(ref h, (byte)a)++, ib = Unsafe.Add(ref h, (byte)b)++;
-                int ic = Unsafe.Add(ref h, (byte)c)++, id = Unsafe.Add(ref h, (byte)d)++;
-                Unsafe.Add(ref target, ia) = a; Unsafe.Add(ref target, ib) = b;
-                Unsafe.Add(ref target, ic) = c; Unsafe.Add(ref target, id) = d;
-            }
-            for (; i < length; i++)
+            for (int i = 0; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref source, i);
                 Unsafe.Add(ref target, Unsafe.Add(ref h, (byte)value)++) = value;
             }
-            i = 0;
-            for (; i <= length - 4; i += 4)
-            {
-                ushort a = Unsafe.Add(ref target, i), b = Unsafe.Add(ref target, i + 1);
-                ushort c = Unsafe.Add(ref target, i + 2), d = Unsafe.Add(ref target, i + 3);
-                int ia = Unsafe.Add(ref h, 256 + (a >> 8))++, ib = Unsafe.Add(ref h, 256 + (b >> 8))++;
-                int ic = Unsafe.Add(ref h, 256 + (c >> 8))++, id = Unsafe.Add(ref h, 256 + (d >> 8))++;
-                Unsafe.Add(ref source, ia) = a; Unsafe.Add(ref source, ib) = b;
-                Unsafe.Add(ref source, ic) = c; Unsafe.Add(ref source, id) = d;
-            }
-            for (; i < length; i++)
+            for (int i = 0; i < length; i++)
             {
                 ushort value = Unsafe.Add(ref target, i);
                 Unsafe.Add(ref source, Unsafe.Add(ref h, 256 + (value >> 8))++) = value;
@@ -733,10 +713,8 @@ public static partial class Sortz
                     (prefixes | (offsets + Vector512.Create((uint)index))).AsInt32()
                         .StoreUnsafe(ref keyData, (nuint)index);
                 }
-                var folded = differences.GetLower() | differences.GetUpper();
-                var folded128 = folded.GetLower() | folded.GetUpper();
-                varying |= folded128.GetElement(0) | folded128.GetElement(1) |
-                    folded128.GetElement(2) | folded128.GetElement(3);
+                for (int lane = 0; lane < 16; lane++)
+                    varying |= differences.GetElement(lane);
             }
             else if (typeof(T) != typeof(decimal) && typeof(T) != typeof(ulong) && BitConverter.IsLittleEndian && Avx512F.IsSupported)
             {
@@ -758,9 +736,8 @@ public static partial class Sortz
                     (prefixes | (offsets + Vector256.Create((uint)index))).AsInt32()
                         .StoreUnsafe(ref keyData, (nuint)index);
                 }
-                var folded = differences.GetLower() | differences.GetUpper();
-                varying |= folded.GetElement(0) | folded.GetElement(1) |
-                    folded.GetElement(2) | folded.GetElement(3);
+                for (int lane = 0; lane < 8; lane++)
+                    varying |= differences.GetElement(lane);
             }
             for (; index < length; index++)
             {
